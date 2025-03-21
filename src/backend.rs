@@ -11,15 +11,18 @@ use codee::Encoder;
 use dashmap::DashMap;
 use image::Luma;
 use leptos::prelude::ServerFnError;
+use leptos::prelude::StorageAccess;
 use log::{error, info};
 use once_cell::sync::Lazy;
 use qrcode::QrCode;
 use serde::Deserialize;
 use serde::Serialize;
+use tokio::sync::RwLockWriteGuard;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
 use std::sync::Arc;
+use tokio::sync::RwLockReadGuard;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use web_push::{
@@ -29,11 +32,34 @@ use web_push::{
 
 use uuid::Uuid;
 
-static STRUCTURE: Lazy<Arc<Structure>> = Lazy::new(|| Arc::new(Structure::new()));
-// static TIMERS: Lazy<DashMap<Uuid, Tournament>> = Lazy::new(|| DashMap::new());
-static TIMERS: Lazy<RwLock<HashMap<Uuid, Tournament>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+pub static STRUCTURE: Lazy<Arc<Structure>> = Lazy::new(|| Arc::new(Structure::new()));
 
-struct Tournament {
+pub static TIMERS: Lazy<(Uuid,RwLock<HashMap<Uuid, Tournament>>)> = Lazy::new(|| {
+    (Uuid::new_v4(),RwLock::new(HashMap::new()))
+});
+
+async fn read_timers() -> RwLockReadGuard<'static, HashMap<Uuid, Tournament>>
+{
+    info!("timer id {}", TIMERS.0);
+    TIMERS.1.read().await
+}
+
+async fn write_timers() -> RwLockWriteGuard<'static, HashMap<Uuid, Tournament>>
+{
+    TIMERS.1.write().await
+}
+
+fn read_timers_blocking() -> RwLockReadGuard<'static, HashMap<Uuid, Tournament>>
+{
+    TIMERS.1.blocking_read()
+}
+
+fn write_timers_blocking() -> RwLockWriteGuard<'static, HashMap<Uuid, Tournament>>
+{
+    TIMERS.1.blocking_write()
+}
+
+pub struct Tournament {
     timer_id: Uuid,
     structure: Arc<Structure>,
     level: usize,
@@ -73,7 +99,7 @@ impl Tournament {
                 info!(
                     "bg: Timer {} exists {}",
                     timer_id,
-                    TIMERS.read().await.contains_key(&timer_id)
+                    read_timers().await.contains_key(&timer_id)
                 );
                 sleep(std::time::Duration::from_secs(2)).await;
             }
@@ -83,7 +109,7 @@ impl Tournament {
         tokio::spawn(async move {
             loop {
                 {
-                    let time = match TIMERS.read().await.get(&timer_id) {
+                    let time = match read_timers().await.get(&timer_id) {
                         None => {
                             // the tournament ended
                             break;
@@ -101,7 +127,7 @@ impl Tournament {
                 }
 
                 {
-                    match TIMERS.write().await.get_mut(&timer_id) {
+                    match write_timers().await.get_mut(&timer_id) {
                         None => {
                             // the tournament ended
                             break;
@@ -119,7 +145,7 @@ impl Tournament {
                 }
             }
             info!("Deleting tournament {timer_id}");
-            TIMERS.write().await.remove(&timer_id);
+            write_timers().await.remove(&timer_id);
         });
 
         // start a thread to do the broadcasting
@@ -159,7 +185,7 @@ impl Tournament {
                                 body: "Tournament settings have changed".to_string(),
                             },
                         });
-                        let subscriptions = match TIMERS.read().await.get(&timer_id) {
+                        let subscriptions = match read_timers().await.get(&timer_id) {
                             Some(tournament) => tournament.subscriptions.clone(),
                             None => break,
                         };
@@ -446,17 +472,17 @@ pub async fn create_tournament(
     device_id: Uuid,
     timer_id: Uuid,
 ) -> Result<DeviceState, ServerFnError> {
-    if let Some(tournament) = TIMERS.read().await.get(&timer_id) {
+    if let Some(tournament) = read_timers().await.get(&timer_id) {
         return Ok(tournament.to_devicestate(device_id));
     }
     let device_state = {
         info!("Creating timer {timer_id}");
         let tournament = Tournament::new(timer_id);
         let device_state = tournament.to_devicestate(device_id);
-        TIMERS.write().await.insert(timer_id, tournament);
+        write_timers().await.insert(timer_id, tournament);
         device_state
     };
-    let n = TIMERS.read().await.len();
+    let n = read_timers().await.len();
     info!("Timer created, there are {n} timers.");
     Ok(device_state)
 }
@@ -465,16 +491,16 @@ pub async fn current_state(
     device_id: Uuid,
     timer_id: Uuid,
 ) -> Result<Option<DeviceState>, ServerFnError> {
-    info!("cs: There are {} timers", TIMERS.read().await.len());
-    match TIMERS.read().await.get(&timer_id) {
+    info!("cs: There are {} timers", read_timers().await.len());
+    match read_timers().await.get(&timer_id) {
         None => Ok(None),
         Some(tournament) => Ok(Some(tournament.to_devicestate(device_id))),
     }
 }
 
 pub async fn resume_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
-    info!("rt: There are {} timers", TIMERS.read().await.len());
-    match TIMERS.write().await.get_mut(&timer_id) {
+    info!("rt: There are {} timers", read_timers().await.len());
+    match write_timers().await.get_mut(&timer_id) {
         None => {
             error!("resumed, timer not found");
             Err(ServerFnError::Args("not found".to_string()))
@@ -491,7 +517,7 @@ pub async fn resume_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), Se
 }
 
 pub async fn pause_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
-    match TIMERS.write().await.get_mut(&timer_id) {
+    match write_timers().await.get_mut(&timer_id) {
         None => {
             error!("Paused, timer not found");
             Err(ServerFnError::Args("not found".to_string()))
@@ -506,7 +532,7 @@ pub async fn pause_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), Ser
 }
 
 pub fn tourament_settings(timer_id: Uuid) -> Result<Option<TournamentSettings>, ServerFnError> {
-    match TIMERS.blocking_read().get(&timer_id) {
+    match read_timers_blocking().get(&timer_id) {
         None => {
             return Ok(None);
         }
@@ -520,7 +546,7 @@ pub fn set_tournament_settings(
     timer_id: Uuid,
     settings: TournamentSettings,
 ) -> Result<(), ServerFnError> {
-    match TIMERS.blocking_write().get_mut(&timer_id) {
+    match write_timers_blocking().get_mut(&timer_id) {
         None => {
             return Err(ServerFnError::new("Tournament not running"));
         }
@@ -532,10 +558,11 @@ pub fn set_tournament_settings(
 }
 
 async fn handle_socket(timer_id: Uuid, mut socket: WebSocket) {
+    let x = read_timers().await;
     info!(
         "hs: Timer {} exists {}",
         timer_id,
-        TIMERS.read().await.contains_key(&timer_id)
+        read_timers().await.contains_key(&timer_id)
     );
 
     // let channel = match TIMERS.get(&timer_id) {
