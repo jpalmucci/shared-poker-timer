@@ -1,0 +1,69 @@
+/* App-wide styling */
+body {
+    background-color: #0f1116;
+    color: #ffffff;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 20px;
+}
+
+
+a {
+    color: white;
+}
+
+a:hover {
+    background-color: #1f1f1f;
+    cursor: pointer;
+}
+
+.input-container {
+    position: relative;
+    display: inline-block; /* Keeps it wrapped around the input */
+  }
+  
+  .input-field {
+    display: block;
+    width: 100%; /* Adjust as needed */
+  }
+  
+  .test-element {
+    position: absolute;
+    right: 0; /* Aligns to the right */
+    top: 100%; /* Places it directly below the input */
+    margin-top: 4px; /* Adds a little spacing */
+    font-size: 14px;
+    color: #555;
+  }
+
+
+  /* General Form Styling */
+.form {
+    max-width: 380px;
+}
+  
+  /* Form Group Styling */
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 15px;
+  }
+  
+  /* Label Styling */
+  .form-group label {
+    font-weight: bold;
+    /*margin-bottom: 5px;*/
+  }
+  
+  /* Input Styling */
+  .form-group input {
+    padding: 10px;
+  }
+  
+  /* Error Message Styling */
+  .error-message {
+    color: red;
+    font-size: 14px;
+    margin-top: 4px;
+    text-align: right;
+  }
+  

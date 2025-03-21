@@ -1,0 +1,33 @@
+{
+    "name": "Shared Poker Timer",
+    "short_name": "Shared Poker Timer",
+    "description": "A poker tournament time than can easily shared between players in a game.",
+    "icons": [
+    {
+      "src": "/assets/logo_192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/assets/logo_512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/logo_512.png",
+      "type": "image/png",
+      "sizes": "any",
+      "purpose": "any"
+    }
+  ],
+    "id": "/",
+    "display": "standalone",
+    "display_override": ["window-control-overlay", "standalone"],
+    "theme_color": "#000000",
+    "background_color": "#ffffff",
+    "dir": "ltr",
+    "lang": "en",
+    "orientation": "portrait"
+  }
+  
