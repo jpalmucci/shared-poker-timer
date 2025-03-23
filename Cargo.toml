@@ -41,7 +41,7 @@ env_logger = "0.11.7"
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-uuid = { version = "1.13", features = ["serde", "v4", "std", "rng", "js"] }
+uuid = { version = "1.16", features = ["serde", "v4", "std", "rng", "js"] }
 console_log = "1.0.0"
 
 [features]

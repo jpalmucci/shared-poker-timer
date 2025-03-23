@@ -1,3 +1,5 @@
+use crate::app::shell;
+use crate::app::App;
 use crate::model::*;
 use axum::extract::ws::Message;
 use axum::extract::ws::WebSocket;
@@ -29,34 +31,91 @@ use web_push::{
     ContentEncoding, IsahcWebPushClient, SubscriptionInfo, VapidSignatureBuilder, WebPushClient,
     WebPushMessageBuilder,
 };
-
 use uuid::Uuid;
+
+
+
+pub async fn main() {
+    use std::fs;
+
+    use axum::{
+        routing::{any, get},
+        Router,
+    };
+    use axum_server::tls_rustls::RustlsConfig;
+    use leptos::logging::log;
+    use leptos::prelude::*;
+    use leptos_axum::{generate_route_list, LeptosRoutes};
+    use log::info;
+    env_logger::init();
+
+    let conf = get_configuration(None).unwrap();
+    let addr = conf.leptos_options.site_addr;
+    let leptos_options = conf.leptos_options;
+    // Generate the list of routes in your Leptos App
+    let routes = generate_route_list(App);
+
+    let app = Router::new()
+        .leptos_routes(&leptos_options, routes, {
+            let leptos_options = leptos_options.clone();
+            move || shell(leptos_options.clone())
+        })
+        .route("/qr/:timer_id/:timer_name", get(qr_code))
+        .route("/ws/:timer_id", any(websocket_handler))
+        .fallback(leptos_axum::file_and_error_handler(shell))
+        .with_state(leptos_options);
+
+    let app = app.into_make_service();
+    if addr.port() == 8443 {
+        // we want a https server
+        let tls_key = fs::read_to_string("certs/tls-key.pem").unwrap();
+        let tls_cert = fs::read_to_string("certs/tls-cert.pem").unwrap();
+        let config = RustlsConfig::from_pem(tls_cert.into_bytes(), tls_key.into_bytes())
+            .await
+            .expect("Couldn't make config");
+
+        info!["https server started at {addr}"];
+        let handle = axum_server::Handle::new();
+        let handle2 = handle.clone();
+        axum_server::bind_rustls(addr, config)
+            .handle(handle2)
+            .serve(app)
+            .await
+            .unwrap();
+    } else {
+        // run our app with hyper
+        // `axum::Server` is a re-export of `hyper::Server`
+        log!("listening on http://{}", &addr);
+        let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+        axum::serve(listener, app).await.unwrap();
+    }
+
+}
 
 pub static STRUCTURE: Lazy<Arc<Structure>> = Lazy::new(|| Arc::new(Structure::new()));
 
-pub static TIMERS: Lazy<(Uuid,RwLock<HashMap<Uuid, Tournament>>)> = Lazy::new(|| {
-    (Uuid::new_v4(),RwLock::new(HashMap::new()))
+pub static TIMERS: Lazy<RwLock<HashMap<Uuid, Tournament>>> = Lazy::new(|| {
+    RwLock::new(HashMap::new())
 });
 
 async fn read_timers() -> RwLockReadGuard<'static, HashMap<Uuid, Tournament>>
 {
-    info!("timer id {}", TIMERS.0);
-    TIMERS.1.read().await
+    TIMERS.read().await
 }
 
 async fn write_timers() -> RwLockWriteGuard<'static, HashMap<Uuid, Tournament>>
 {
-    TIMERS.1.write().await
+    TIMERS.write().await
 }
 
 fn read_timers_blocking() -> RwLockReadGuard<'static, HashMap<Uuid, Tournament>>
 {
-    TIMERS.1.blocking_read()
+    TIMERS.blocking_read()
 }
 
 fn write_timers_blocking() -> RwLockWriteGuard<'static, HashMap<Uuid, Tournament>>
 {
-    TIMERS.1.blocking_write()
+    TIMERS.blocking_write()
 }
 
 pub struct Tournament {
@@ -68,13 +127,6 @@ pub struct Tournament {
     subscriptions: HashMap<Uuid, Subscription>,
     // contains the message and the device ID responsible for the message (if there is one)
     event_sender: async_broadcast::Sender<(TournamentMessage, Option<Uuid>)>,
-}
-
-impl Drop for Tournament {
-    fn drop(&mut self) {
-        info!("Dropping {}", self.timer_id);
-        todo!()
-    }
 }
 
 impl Tournament {
@@ -94,16 +146,6 @@ impl Tournament {
             event_sender: tx,
         };
 
-        tokio::spawn(async move {
-            loop {
-                info!(
-                    "bg: Timer {} exists {}",
-                    timer_id,
-                    read_timers().await.contains_key(&timer_id)
-                );
-                sleep(std::time::Duration::from_secs(2)).await;
-            }
-        });
         // start a thread to do the level changes
         // TODO - give a one minute warning before end of break
         tokio::spawn(async move {
@@ -491,7 +533,6 @@ pub async fn current_state(
     device_id: Uuid,
     timer_id: Uuid,
 ) -> Result<Option<DeviceState>, ServerFnError> {
-    info!("cs: There are {} timers", read_timers().await.len());
     match read_timers().await.get(&timer_id) {
         None => Ok(None),
         Some(tournament) => Ok(Some(tournament.to_devicestate(device_id))),
@@ -499,7 +540,6 @@ pub async fn current_state(
 }
 
 pub async fn resume_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
-    info!("rt: There are {} timers", read_timers().await.len());
     match write_timers().await.get_mut(&timer_id) {
         None => {
             error!("resumed, timer not found");
@@ -558,50 +598,43 @@ pub fn set_tournament_settings(
 }
 
 async fn handle_socket(timer_id: Uuid, mut socket: WebSocket) {
-    let x = read_timers().await;
-    info!(
-        "hs: Timer {} exists {}",
-        timer_id,
-        read_timers().await.contains_key(&timer_id)
-    );
+    let mut channel = match read_timers().await.get(&timer_id) {
+        Some(timer) => timer.event_sender.new_receiver(),
+        None => {
+            info!("No timer {timer_id}");
+            return;
+        }
+    };
+    loop {
+        tokio::select! {
+         x = channel.recv() => {
+            match x {
+                Ok((tm, _sender)) => {
+                    info!("Sending Message");
+                    let dm = DeviceMessage{ msg: tm, subscribed: false };
+                    let message = MsgpackSerdeCodec::encode(&dm).expect("Couldn't encode");
+                    if let Err(e) = socket.send(Message::Binary(message)).await {
+                        info!("couldn't send {e}");
+                        break;
+                    }
+                },
+                Err(e) => {
+                    info!("Error reading channel {e}");
+                    break;
+                }
+            }
+        },
 
-    // let channel = match TIMERS.get(&timer_id) {
-    //     Some(timer) => timer.event_sender.new_receiver(),
-    //     None => {
-    //         info!("No timer {timer_id}");
-    //         return;
-    //     }
-    // };
-    // loop {
-    //     tokio::select! {
-    //      x = channel.recv() => {
-    //         match x {
-    //             Ok((tm, _sender)) => {
-    //                 info!("Sending Message");
-    //                 let dm = DeviceMessage{ msg: tm, subscribed: false };
-    //                 let message = MsgpackSerdeCodec::encode(&dm).expect("Couldn't encode");
-    //                 if let Err(e) = socket.send(Message::Binary(message)).await {
-    //                     info!("couldn't send {e}");
-    //                     return;
-    //                 }
-    //             },
-    //             Err(e) => {
-    //                 info!("Error reading channel {e}");
-    //                 return;
-    //             }
-    //         }
-    //     },
-
-    //     x = socket.recv() => {
-    //         match x {
-    //             None => { return; },
-    //             Some(msg) => {
-    //                 info!("{msg:?}");
-    //             }
-    //         }
-    //     }
-    //     }
-    // }
+        x = socket.recv() => {
+            match x {
+                None => { break; },
+                Some(msg) => {
+                    info!("{msg:?}");
+                }
+            }
+        }
+        }
+    }
 }
 
 pub async fn websocket_handler(
