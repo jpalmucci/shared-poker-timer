@@ -1,12 +1,15 @@
 use crate::app::shell;
 use crate::app::App;
 use crate::model::*;
+use axum::extract;
 use axum::extract::ws::Message;
 use axum::extract::ws::WebSocket;
 use axum::extract::Path;
 use axum::extract::WebSocketUpgrade;
 use axum::http::header;
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum::routing::post;
 use chrono::Duration;
 use codee::string::JsonSerdeWasmCodec;
 use codee::Encoder;
@@ -55,7 +58,9 @@ pub async fn main() {
             move || shell(leptos_options.clone())
         })
         .route("/qr/:timer_id/:timer_name", get(qr_code))
-        .route("/ws/:timer_id", any(websocket_handler))
+        .route("/ws/:timer_id/:device_id", any(websocket_handler))
+        .route("/subscribe/:timer_id", post(subscribe))
+        .route("/unsubscribe/:timer_id", post(unsubscribe))
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
 
@@ -87,8 +92,7 @@ pub async fn main() {
 
 pub static STRUCTURE: Lazy<Arc<Structure>> = Lazy::new(|| Arc::new(Structure::new()));
 
-pub static TIMERS: Lazy<DashMap<Uuid, Tournament>> =
-    Lazy::new(|| DashMap::new());
+pub static TIMERS: Lazy<DashMap<Uuid, Tournament>> = Lazy::new(|| DashMap::new());
 
 pub struct Tournament {
     timer_id: Uuid,
@@ -574,11 +578,11 @@ pub fn set_tournament_settings(
     }
 }
 
-async fn handle_socket(timer_id: Uuid, mut socket: WebSocket) {
+async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocket) {
     let (mut channel, hello) = match TIMERS.get(&timer_id) {
         Some(timer) => (timer.event_sender.new_receiver(), {
             DeviceMessage {
-                subscribed: false,
+                subscribed: timer.subscriptions.contains_key(&device_id),
                 msg: TournamentMessage::Hello(timer.to_roundstate()),
             }
         }),
@@ -601,7 +605,12 @@ async fn handle_socket(timer_id: Uuid, mut socket: WebSocket) {
             match x {
                 Ok((tm, _sender)) => {
                     info!("Sending Message");
-                    let dm = DeviceMessage{ msg: tm, subscribed: false };
+                    let subscribed = if let Some(timer) = TIMERS.get(&timer_id) {
+                        timer.subscriptions.contains_key(&device_id)
+                    } else {
+                        false
+                    };
+                    let dm = DeviceMessage{ msg: tm, subscribed };
                     let message = JsonSerdeWasmCodec::encode(&dm).expect("Couldn't encode");
                     if let Err(e) = socket.send(Message::Text(message)).await {
                         info!("couldn't send {e}");
@@ -628,10 +637,10 @@ async fn handle_socket(timer_id: Uuid, mut socket: WebSocket) {
 }
 
 pub async fn websocket_handler(
-    Path(timer_id): Path<Uuid>,
+    Path((timer_id,device_id)): Path<(Uuid, Uuid)>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    ws.on_upgrade(async move |socket| handle_socket(timer_id, socket).await)
+    ws.on_upgrade(async move |socket| handle_socket(timer_id, device_id, socket).await)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -700,4 +709,39 @@ pub async fn qr_code(Path((timer_id, timer_name)): Path<(Uuid, String)>) -> impl
 
     // Return as a PNG image response
     ([(header::CONTENT_TYPE, "image/png")], buf.into_inner())
+}
+
+pub async fn subscribe(
+    Path(timer_id): Path<Uuid>,
+    extract::Json(payload): extract::Json<Subscription>,
+) -> impl IntoResponse {
+    match TIMERS.get_mut(&timer_id) {
+        None => {
+            return (StatusCode::NOT_FOUND, "Not found".to_string());
+        }
+        Some(mut t) => {
+            let device_id = payload.device_id;
+            t.subscriptions.remove(&device_id);
+            t.subscriptions.insert(device_id, payload);
+            info!("There are {} subscriptions", t.subscriptions.len());
+            return (StatusCode::OK, "ok".to_string());
+        }
+    }
+}
+
+pub async fn unsubscribe(
+    Path(timer_id): Path<Uuid>,
+    extract::Json(payload): extract::Json<Subscription>,
+) -> Result<String, StatusCode> {
+    let device_id = payload.device_id;
+    match TIMERS.get_mut(&timer_id) {
+        None => {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        Some(mut t) => {
+            t.subscriptions.remove(&device_id);
+            info!("There are {} subscriptions", t.subscriptions.len());
+            Ok("ok".to_string())
+        }
+    }
 }

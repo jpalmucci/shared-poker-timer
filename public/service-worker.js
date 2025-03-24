@@ -27,7 +27,7 @@ self.addEventListener("install", function (event) {
           return cache.addAll(offlineFundamentals);
         })
         .then(function () {
-          //console.log('WORKER: install completed');
+          console.log('WORKER: install completed');
         })
     );
   });

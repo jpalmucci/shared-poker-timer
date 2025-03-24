@@ -6,8 +6,8 @@ use leptos_icons::Icon;
 use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
 use leptos_router::{
     components::{Route, Router, Routes},
-    hooks::use_params,
-    path, StaticSegment,
+    hooks::{use_navigate, use_params},
+    path, NavigateOptions, StaticSegment,
 };
 use leptos_use::{
     core::ConnectionReadyState,
@@ -54,6 +54,7 @@ pub fn App() -> impl IntoView {
                 <Routes fallback=|| "Page not found.".into_view()>
                     <Route path=StaticSegment("") view=HomePage />
                     <Route path=path!("/timer/:timer_id/:timer_name") view=TimerPage />
+                    <Route path=path!("/settings/:timer_id/:timer_name") view=SettingsPage />
                 </Routes>
             </main>
         </Router>
@@ -117,6 +118,28 @@ fn required(s: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+#[component]
+fn CloseButton() -> impl IntoView {
+    let nav = use_navigate();
+    view! {
+        <div style:color="#FFFFFF" style:background_color="#000000" style:float="right">
+            <a on:click=move |_evt| {
+                nav("/", NavigateOptions::default());
+            }>
+                <Icon icon=icondata::AiCloseOutlined />
+            </a>
+        </div>
+    }
+    // div {
+    //     style: "color: #ffffff; background-color: #000000; float: right",
+    //     onclick: |_evt| {
+    //         let nav = navigator();
+    //         nav.push( Route::HomePage { });
+    //     },
+    //     Icon { icon: FaXmark }
+    // }
 }
 
 /// Renders the home page of your application.
@@ -215,6 +238,7 @@ fn HomePage() -> impl IntoView {
 
 use leptos::Params;
 use leptos_router::params::Params;
+use web_sys::HtmlInputElement;
 
 #[derive(Params, PartialEq, Clone, Debug)]
 struct TimerPageParams {
@@ -246,11 +270,16 @@ fn extract_params() -> Result<(Uuid, String, Uuid), String> {
 #[component]
 fn TimerPage() -> impl IntoView {
     view! {
+        <CloseButton />
         {|| {
             match extract_params() {
                 Ok((timer_id, timer_name, device_id)) => {
+                    let encoded_name = urlencoding::encode(&timer_name).into_owned();
                     view! {
                         <TimerComp timer_id=timer_id timer_name=timer_name device_id=device_id />
+                        <p>
+                            <img src=format!("/qr/{timer_id}/{encoded_name}") />
+                        </p>
                     }
                         .into_any()
                 }
@@ -312,7 +341,7 @@ fn maybe_add_timer(_timer_id: Uuid, _timer_name: &str) {}
 
 #[component]
 fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoView {
-    // TODO - fix this
+    // TODO - fix maybe_add_timer
     // maybe_add_timer(timer_id, &timer_name);
     let initial_state = Resource::new(
         || extract_params(),
@@ -343,7 +372,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
         close,
         ..
     } = use_websocket_with_options::<DeviceMessage, DeviceMessage, JsonSerdeCodec, _, _>(
-        &format!("/ws/{timer_id}"),
+        &format!("/ws/{}/{}", timer_id, device_id),
         UseWebSocketOptions::default()
             .immediate(false)
             .on_message_raw(|m| {
@@ -416,15 +445,14 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
             {move || {
                 if let TimerCompState::Running(DeviceState { subscribed, .. }) = my_state() {
                     Some(
-
                         view! {
                             <div>
                                 <input
                                     type="checkbox"
                                     checked=subscribed
-                                    on:input=move |evt| spawn_local(async move {
-                                        let value = evt.value_of().is_truthy();
-                                        if value {
+                                    on:change=move |evt| spawn_local(async move {
+                                        let target: HtmlInputElement = event_target(&evt);
+                                        if target.checked() {
                                             register_service_worker(device_id, timer_id);
                                         } else {
                                             deregister_service_worker(device_id, timer_id);
@@ -476,9 +504,22 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
                 } else {
                     None
                 }
-            }}
+            }} <SettingsButton timer_id=timer_id timer_name=timer_name />
         </Suspense>
     }
+}
+
+#[component]
+fn SettingsButton(timer_id : Uuid, timer_name : String) -> impl IntoView {
+    let nav = use_navigate();
+    view! {
+        <button on:click=move |_| {
+            let encoded_name = urlencoding::encode(&timer_name);
+            let url = format!("/settings/{timer_id}/{encoded_name}");
+            nav(&url, NavigateOptions::default());
+        }>"Settings"</button>
+    }
+
 }
 
 #[component]
@@ -519,7 +560,7 @@ fn register_service_worker(device_id: Uuid, timer_id: Uuid) {
     use js_sys::eval;
     let result = eval(&format!(
         "if ('serviceWorker' in navigator) {{
-            navigator.serviceWorker.getRegistration()
+            navigator.serviceWorker.register('/service-worker.js')
             .then(registration => {{
                 console.log('Service Worker registered:', registration);
                 return registration.pushManager.subscribe({{
@@ -574,6 +615,32 @@ pub fn beep() {
     if let Err(e) = result {
         error!("{e:?}");
     };
+}
+
+#[component]
+fn SettingsPage() -> impl IntoView {
+    view! {
+        <CloseButton />
+        {|| {
+            match extract_params() {
+                Ok((timer_id, timer_name, device_id)) => {
+                    let encoded_name = urlencoding::encode(&timer_name).into_owned();
+                    view! {
+                        <h1>"Settings"</h1>
+                        <div>{timer_id.to_string()}</div>
+                        <div>{timer_name}</div>
+                        <div>{device_id.to_string()}</div>
+                    }
+                        .into_any()
+                }
+                Err(e) => {
+
+                    view! { <p>Error: {e}</p> }
+                        .into_any()
+                }
+            }
+        }}
+    }
 }
 
 #[server]
