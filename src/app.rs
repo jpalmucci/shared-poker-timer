@@ -1,5 +1,5 @@
 use crate::model::*;
-use codee::{binary::MsgpackSerdeCodec, string::JsonSerdeCodec};
+use codee::string::JsonSerdeCodec;
 use lazy_regex::regex;
 use leptos::{logging::error, prelude::*, task::spawn_local};
 use leptos_icons::Icon;
@@ -14,6 +14,7 @@ use leptos_use::{
     storage::{use_local_storage_with_options, UseStorageOptions},
     use_interval, use_websocket_with_options, UseWebSocketOptions, UseWebSocketReturn,
 };
+use log::info;
 use uuid::Uuid;
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
@@ -294,13 +295,16 @@ fn maybe_add_timer(timer_id: Uuid, timer_name: &str) {
         "timers",
         UseStorageOptions::default().delay_during_hydration(true),
     );
-    if let None = timers.read().iter().find(|t| t.id == timer_id) {
-        // timer is not in data, add it
-        set_timers.write().push(Timer {
-            id: timer_id,
-            name: timer_name.to_string(),
-        });
-    }
+    let timer_name = timer_name.to_string();
+    Effect::new(move |_| {
+        if let None = timers.read().iter().find(|t| t.id == timer_id) {
+            // timer is not in data, add it
+            set_timers.write().push(Timer {
+                id: timer_id,
+                name: timer_name.clone(),
+            });
+        }
+    });
 }
 
 #[cfg(feature = "ssr")]
@@ -308,7 +312,8 @@ fn maybe_add_timer(_timer_id: Uuid, _timer_name: &str) {}
 
 #[component]
 fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoView {
-    maybe_add_timer(timer_id, &timer_name);
+    // TODO - fix this
+    // maybe_add_timer(timer_id, &timer_name);
     let initial_state = Resource::new(
         || extract_params(),
         move |params| async move {
@@ -335,31 +340,40 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
         ready_state,
         message,
         open,
+        close,
         ..
-    } = use_websocket_with_options::<DeviceMessage, DeviceMessage, MsgpackSerdeCodec, _, _>(
+    } = use_websocket_with_options::<DeviceMessage, DeviceMessage, JsonSerdeCodec, _, _>(
         &format!("/ws/{timer_id}"),
-        UseWebSocketOptions::default().immediate(false),
+        UseWebSocketOptions::default()
+            .immediate(false)
+            .on_message_raw(|m| {
+                info!("On Raw Message {:?}", m);
+            })
+            .on_error(|e| {
+                info!("On Error {:?}", e);
+            }),
     );
-    Effect::new(move |_| {
-        if let TimerCompState::Running(_) = my_state() {
+    Effect::new(move |_| match my_state() {
+        TimerCompState::Running(device_state) => {
             if ready_state.get() == ConnectionReadyState::Closed {
+                info!("Opening channel");
                 open();
             } else {
-                if let Some(dm) = message.get() {
-                    let round_state = match &dm.msg {
-                        TournamentMessage::LevelUp(round_state) => {
-                            beep();
-                            round_state
-                        }
-                        TournamentMessage::Pause(round_state) => round_state,
-                        TournamentMessage::Resume(round_state) => round_state,
-                        TournamentMessage::Settings(round_state) => round_state,
-                    };
-                    settable_state.set(TimerCompState::Running(DeviceState {
-                        subscribed: true,
-                        state: round_state.clone(),
-                    }));
+                let message = message.get();
+                if let Some(dm) = message {
+                    if let TournamentMessage::LevelUp(_) = &dm.msg {
+                        beep();
+                    }
+                    let new_device_state = dm.into_device_state();
+                    if new_device_state != device_state {
+                        settable_state.set(TimerCompState::Running(new_device_state));
+                    }
                 }
+            }
+        }
+        _ => {
+            if ready_state.get() != ConnectionReadyState::Closed {
+                close()
             }
         }
     });

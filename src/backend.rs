@@ -8,32 +8,26 @@ use axum::extract::WebSocketUpgrade;
 use axum::http::header;
 use axum::response::IntoResponse;
 use chrono::Duration;
-use codee::binary::MsgpackSerdeCodec;
+use codee::string::JsonSerdeWasmCodec;
 use codee::Encoder;
 use dashmap::DashMap;
 use image::Luma;
 use leptos::prelude::ServerFnError;
-use leptos::prelude::StorageAccess;
 use log::{error, info};
 use once_cell::sync::Lazy;
 use qrcode::QrCode;
 use serde::Deserialize;
 use serde::Serialize;
-use tokio::sync::RwLockWriteGuard;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
 use std::sync::Arc;
-use tokio::sync::RwLockReadGuard;
-use tokio::sync::RwLock;
 use tokio::time::sleep;
+use uuid::Uuid;
 use web_push::{
     ContentEncoding, IsahcWebPushClient, SubscriptionInfo, VapidSignatureBuilder, WebPushClient,
     WebPushMessageBuilder,
 };
-use uuid::Uuid;
-
-
 
 pub async fn main() {
     use std::fs;
@@ -89,34 +83,12 @@ pub async fn main() {
         let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
         axum::serve(listener, app).await.unwrap();
     }
-
 }
 
 pub static STRUCTURE: Lazy<Arc<Structure>> = Lazy::new(|| Arc::new(Structure::new()));
 
-pub static TIMERS: Lazy<RwLock<HashMap<Uuid, Tournament>>> = Lazy::new(|| {
-    RwLock::new(HashMap::new())
-});
-
-async fn read_timers() -> RwLockReadGuard<'static, HashMap<Uuid, Tournament>>
-{
-    TIMERS.read().await
-}
-
-async fn write_timers() -> RwLockWriteGuard<'static, HashMap<Uuid, Tournament>>
-{
-    TIMERS.write().await
-}
-
-fn read_timers_blocking() -> RwLockReadGuard<'static, HashMap<Uuid, Tournament>>
-{
-    TIMERS.blocking_read()
-}
-
-fn write_timers_blocking() -> RwLockWriteGuard<'static, HashMap<Uuid, Tournament>>
-{
-    TIMERS.blocking_write()
-}
+pub static TIMERS: Lazy<DashMap<Uuid, Tournament>> =
+    Lazy::new(|| DashMap::new());
 
 pub struct Tournament {
     timer_id: Uuid,
@@ -151,7 +123,7 @@ impl Tournament {
         tokio::spawn(async move {
             loop {
                 {
-                    let time = match read_timers().await.get(&timer_id) {
+                    let time = match TIMERS.get(&timer_id) {
                         None => {
                             // the tournament ended
                             break;
@@ -169,7 +141,7 @@ impl Tournament {
                 }
 
                 {
-                    match write_timers().await.get_mut(&timer_id) {
+                    match TIMERS.get_mut(&timer_id) {
                         None => {
                             // the tournament ended
                             break;
@@ -187,7 +159,7 @@ impl Tournament {
                 }
             }
             info!("Deleting tournament {timer_id}");
-            write_timers().await.remove(&timer_id);
+            TIMERS.remove(&timer_id);
         });
 
         // start a thread to do the broadcasting
@@ -207,6 +179,11 @@ impl Tournament {
 
                     Ok((message, from_device_id)) => {
                         let notification = Arc::new(match &message {
+                            TournamentMessage::Hello(_) => Notification {
+                                title: "Hello".to_string(),
+                                body: "Notifications are on".to_string(),
+                            },
+
                             TournamentMessage::Pause(_) => Notification {
                                 title: "Update".to_string(),
                                 body: "Tournament Paused".to_string(),
@@ -227,7 +204,7 @@ impl Tournament {
                                 body: "Tournament settings have changed".to_string(),
                             },
                         });
-                        let subscriptions = match read_timers().await.get(&timer_id) {
+                        let subscriptions = match TIMERS.get(&timer_id) {
                             Some(tournament) => tournament.subscriptions.clone(),
                             None => break,
                         };
@@ -514,17 +491,17 @@ pub async fn create_tournament(
     device_id: Uuid,
     timer_id: Uuid,
 ) -> Result<DeviceState, ServerFnError> {
-    if let Some(tournament) = read_timers().await.get(&timer_id) {
+    if let Some(tournament) = TIMERS.get(&timer_id) {
         return Ok(tournament.to_devicestate(device_id));
     }
     let device_state = {
         info!("Creating timer {timer_id}");
         let tournament = Tournament::new(timer_id);
         let device_state = tournament.to_devicestate(device_id);
-        write_timers().await.insert(timer_id, tournament);
+        TIMERS.insert(timer_id, tournament);
         device_state
     };
-    let n = read_timers().await.len();
+    let n = TIMERS.len();
     info!("Timer created, there are {n} timers.");
     Ok(device_state)
 }
@@ -533,14 +510,14 @@ pub async fn current_state(
     device_id: Uuid,
     timer_id: Uuid,
 ) -> Result<Option<DeviceState>, ServerFnError> {
-    match read_timers().await.get(&timer_id) {
+    match TIMERS.get(&timer_id) {
         None => Ok(None),
         Some(tournament) => Ok(Some(tournament.to_devicestate(device_id))),
     }
 }
 
 pub async fn resume_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
-    match write_timers().await.get_mut(&timer_id) {
+    match TIMERS.get_mut(&timer_id) {
         None => {
             error!("resumed, timer not found");
             Err(ServerFnError::Args("not found".to_string()))
@@ -557,12 +534,12 @@ pub async fn resume_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), Se
 }
 
 pub async fn pause_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
-    match write_timers().await.get_mut(&timer_id) {
+    match TIMERS.get_mut(&timer_id) {
         None => {
             error!("Paused, timer not found");
             Err(ServerFnError::Args("not found".to_string()))
         }
-        Some(tournament) => {
+        Some(mut tournament) => {
             tournament.clock_state = tournament.clock_state.pause();
             let state = tournament.to_roundstate();
             tournament.broadcast(Some(device_id), TournamentMessage::Pause(state.clone()));
@@ -572,7 +549,7 @@ pub async fn pause_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), Ser
 }
 
 pub fn tourament_settings(timer_id: Uuid) -> Result<Option<TournamentSettings>, ServerFnError> {
-    match read_timers_blocking().get(&timer_id) {
+    match TIMERS.get(&timer_id) {
         None => {
             return Ok(None);
         }
@@ -586,11 +563,11 @@ pub fn set_tournament_settings(
     timer_id: Uuid,
     settings: TournamentSettings,
 ) -> Result<(), ServerFnError> {
-    match write_timers_blocking().get_mut(&timer_id) {
+    match TIMERS.get_mut(&timer_id) {
         None => {
             return Err(ServerFnError::new("Tournament not running"));
         }
-        Some(t) => {
+        Some(mut t) => {
             t.update_settings(settings);
             return Ok(());
         }
@@ -598,13 +575,26 @@ pub fn set_tournament_settings(
 }
 
 async fn handle_socket(timer_id: Uuid, mut socket: WebSocket) {
-    let mut channel = match read_timers().await.get(&timer_id) {
-        Some(timer) => timer.event_sender.new_receiver(),
+    let (mut channel, hello) = match TIMERS.get(&timer_id) {
+        Some(timer) => (timer.event_sender.new_receiver(), {
+            DeviceMessage {
+                subscribed: false,
+                msg: TournamentMessage::Hello(timer.to_roundstate()),
+            }
+        }),
         None => {
             info!("No timer {timer_id}");
             return;
         }
     };
+    let message = JsonSerdeWasmCodec::encode(&hello).expect("Couldn't encode");
+    match socket.send(Message::Text(message)).await {
+        Ok(_) => {}
+        Err(e) => {
+            info!("couldn't send hello {e}");
+            return;
+        }
+    }
     loop {
         tokio::select! {
          x = channel.recv() => {
@@ -612,8 +602,8 @@ async fn handle_socket(timer_id: Uuid, mut socket: WebSocket) {
                 Ok((tm, _sender)) => {
                     info!("Sending Message");
                     let dm = DeviceMessage{ msg: tm, subscribed: false };
-                    let message = MsgpackSerdeCodec::encode(&dm).expect("Couldn't encode");
-                    if let Err(e) = socket.send(Message::Binary(message)).await {
+                    let message = JsonSerdeWasmCodec::encode(&dm).expect("Couldn't encode");
+                    if let Err(e) = socket.send(Message::Text(message)).await {
                         info!("couldn't send {e}");
                         break;
                     }

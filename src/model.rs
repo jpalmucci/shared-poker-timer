@@ -161,8 +161,18 @@ pub struct RoundState {
     pub clock: ClockState,
 }
 
+impl RoundState {
+    pub fn into_device_state(self, subscribed: bool) -> DeviceState {
+        DeviceState {
+            subscribed,
+            state: self,
+        }
+    }
+}
+
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub enum TournamentMessage {
+    Hello(RoundState),
     Pause(RoundState),
     Resume(RoundState),
     LevelUp(RoundState),
@@ -183,14 +193,15 @@ pub struct DeviceMessage {
 }
 
 impl DeviceMessage {
-    pub fn to_device_state(&self) -> DeviceState {
+    pub fn into_device_state(self) -> DeviceState {
         DeviceState {
             subscribed: self.subscribed,
-            state: match &self.msg {
-                TournamentMessage::Pause(round_state) => round_state.clone(),
-                TournamentMessage::Resume(round_state) => round_state.clone(),
-                TournamentMessage::LevelUp(round_state) => round_state.clone(),
-                TournamentMessage::Settings(round_state) => round_state.clone(),
+            state: match self.msg {
+                TournamentMessage::Hello(round_state) => round_state,
+                TournamentMessage::Pause(round_state) => round_state,
+                TournamentMessage::Resume(round_state) => round_state,
+                TournamentMessage::LevelUp(round_state) => round_state,
+                TournamentMessage::Settings(round_state) => round_state,
             },
         }
     }

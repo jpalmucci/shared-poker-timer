@@ -9,14 +9,14 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 leptos = { version = "0.7.0" }
 leptos_router = { version = "0.7.0" }
-axum = { version = "0.7", features=["ws"], optional = true }
-console_error_panic_hook = { version = "0.1", optional = true}
+axum = { version = "0.7", features = ["ws"], optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
 leptos_axum = { version = "0.7.0", optional = true }
 leptos_meta = { version = "0.7.0" }
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 wasm-bindgen = { version = "=0.2.100", optional = true }
-leptos-use = "0.15.7"
-codee = {version = "0.3.0", features=["msgpack_serde"]}
+leptos-use = { version = "0.15.7", features = ["storage"] }
+codee = { version = "0.3.0", features = ["json_serde_wasm"] }
 serde = "1.0.219"
 serde_json = "1.0.140"
 leptos_icons = "0.5.0"
@@ -45,11 +45,7 @@ uuid = { version = "1.16", features = ["serde", "v4", "std", "rng", "js"] }
 console_log = "1.0.0"
 
 [features]
-hydrate = [
-    "leptos/hydrate",
-    "dep:console_error_panic_hook",
-    "dep:wasm-bindgen",
-]
+hydrate = ["leptos/hydrate", "dep:console_error_panic_hook", "dep:wasm-bindgen"]
 ssr = [
     "dep:axum",
     "dep:tokio",
@@ -57,7 +53,7 @@ ssr = [
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",
-    "leptos-use/ssr"
+    "leptos-use/ssr",
 ]
 
 # Defines a size-optimized profile for the WASM bundle in release mode
