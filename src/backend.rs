@@ -92,84 +92,30 @@ pub async fn main() {
 
 pub static STRUCTURE: Lazy<Arc<Structure>> = Lazy::new(|| Arc::new(Structure::new()));
 
-pub static TIMERS: Lazy<DashMap<Uuid, Tournament>> = Lazy::new(|| DashMap::new());
+pub static TIMERS: Lazy<DashMap<Uuid, Timer>> = Lazy::new(|| DashMap::new());
 
-pub struct Tournament {
+pub struct Timer {
     timer_id: Uuid,
-    structure: Arc<Structure>,
-    level: usize,
-    clock_state: ClockState,
-    settings: TournamentSettings,
     subscriptions: HashMap<Uuid, Subscription>,
     // contains the message and the device ID responsible for the message (if there is one)
     event_sender: async_broadcast::Sender<(TournamentMessage, Option<Uuid>)>,
+    tournament: Option<Tournament>,
 }
 
-impl Tournament {
-    pub fn new(timer_id: Uuid) -> Tournament {
-        let str = STRUCTURE.clone();
+impl Timer {
+    pub fn new(timer_id: Uuid) -> Timer {
         let (tx, mut rx) = async_broadcast::broadcast(100);
-        let mut rx2 = tx.new_receiver();
-        let tournament = Tournament {
-            timer_id: timer_id,
-            structure: STRUCTURE.clone(),
-            level: 1,
-            clock_state: ClockState::Paused {
-                remaining: str.get_level(1).duration(),
-            },
+        let new_timer = Timer {
+            timer_id: timer_id.clone(),
             subscriptions: HashMap::new(),
-            settings: TournamentSettings::default(),
             event_sender: tx,
+            tournament: None,
         };
-
-        // start a thread to do the level changes
-        // TODO - give a one minute warning before end of break
-        tokio::spawn(async move {
-            loop {
-                {
-                    let time = match TIMERS.get(&timer_id) {
-                        None => {
-                            // the tournament ended
-                            break;
-                        }
-                        Some(tournament) => std::time::Duration::from_millis(
-                            tournament.clock_state.remaining().num_milliseconds() as u64,
-                        ),
-                    };
-                    // wait until the time has elapsed, or a message that changed the state of the
-                    // tournament occurred.
-                    tokio::select! {
-                        _ = sleep(time) => {},
-                        _ = rx.recv() => {}
-                    }
-                }
-
-                {
-                    match TIMERS.get_mut(&timer_id) {
-                        None => {
-                            // the tournament ended
-                            break;
-                        }
-                        Some(mut tournament) => {
-                            if tournament.clock_state.remaining().num_seconds() < 2 {
-                                if *tournament.cur_level() == Level::Done {
-                                    // we are done and the grace period has expired. Delete the tournament
-                                    break;
-                                }
-                                tournament.level_up();
-                            }
-                        }
-                    }
-                }
-            }
-            info!("Deleting tournament {timer_id}");
-            TIMERS.remove(&timer_id);
-        });
 
         // start a thread to do the broadcasting
         tokio::spawn(async move {
             loop {
-                let message = rx2.recv().await;
+                let message = rx.recv().await;
                 match message {
                     Err(e) => match e {
                         async_broadcast::RecvError::Overflowed(_) => {
@@ -229,6 +175,159 @@ impl Tournament {
                 }
             }
         });
+        new_timer
+    }
+    fn make_tournament(&mut self) {
+        if self.tournament.is_none() {
+            let tournament = Tournament::new(self);
+            let message = TournamentMessage::Hello(tournament.to_roundstate());
+            self.tournament = Some(tournament);
+            (&*self).broadcast(None, message);
+        }
+    }
+
+    fn broadcast(&self, from_device_id: Option<Uuid>, message: TournamentMessage) {
+        let result = self
+            .event_sender
+            .try_broadcast((message.clone(), from_device_id));
+        match result {
+            Ok(_) => {}
+            Err(err) => {
+                error!["error broadcasting message: {err:?}",]
+            }
+        }
+    }
+    fn level_up(&mut self) {
+        if let Some(ref mut tournament) = &mut self.tournament {
+            tournament.level_up();
+            let message = TournamentMessage::LevelUp(tournament.to_roundstate());
+            (&*self).broadcast(None, message);
+        }
+    }
+
+    fn to_timer_comp_state(&self, device: &Uuid) -> TimerCompState {
+        if let Some(tournament) = &self.tournament {
+            let subscribed = self.subscriptions.contains_key(&device);
+            TimerCompState::Running {
+                subscribed,
+                state: tournament.to_roundstate(),
+            }
+        } else {
+            TimerCompState::NoTournament
+        }
+    }
+    fn update_settings(&mut self, settings: TournamentSettings) {
+        if let Some(ref mut tournament) = &mut self.tournament {
+            tournament.update_settings(settings);
+            let message = TournamentMessage::Settings(tournament.to_roundstate());
+            (&*self).broadcast(None, message);
+        }
+    }
+
+    fn resume_tournament(&mut self, device_id: Uuid) {
+        if let Some(ref mut tournament) = &mut self.tournament {
+            tournament.clock_state = tournament.clock_state.resume();
+            let message = TournamentMessage::Resume(tournament.to_roundstate());
+            (&*self).broadcast(Some(device_id), message);
+        }
+    }
+
+    fn pause_tournament(&mut self, device_id: Uuid) {
+        if let Some(ref mut tournament) = &mut self.tournament {
+            tournament.clock_state = tournament.clock_state.pause();
+            let message = TournamentMessage::Pause(tournament.to_roundstate());
+            (&*self).broadcast(Some(device_id), message);
+        }
+    }
+}
+
+pub struct Tournament {
+    timer_id: Uuid,
+    structure: Arc<Structure>,
+    level: usize,
+    clock_state: ClockState,
+    settings: TournamentSettings,
+}
+
+impl Tournament {
+    pub fn new(timer: &Timer) -> Tournament {
+        let str = STRUCTURE.clone();
+        let mut rx = timer.event_sender.new_receiver();
+        let timer_id = timer.timer_id;
+        let tournament = Tournament {
+            timer_id: timer.timer_id,
+            structure: STRUCTURE.clone(),
+            level: 1,
+            clock_state: ClockState::Paused {
+                remaining: str.get_level(1).duration(),
+            },
+            settings: TournamentSettings::default(),
+        };
+
+        // start a thread to do the level changes
+        // TODO - give a one minute warning before end of break
+        tokio::spawn(async move {
+            loop {
+                {
+                    let time = match TIMERS.get(&timer_id) {
+                        None => {
+                            // the tournament ended
+                            break;
+                        }
+                        Some(timer) => match &*timer {
+                            Timer {
+                                tournament: Some(tournament),
+                                ..
+                            } => std::time::Duration::from_millis(
+                                tournament.clock_state.remaining().num_milliseconds() as u64,
+                            ),
+                            _ => {
+                                // the tournament ended
+                                break;
+                            }
+                        },
+                    };
+                    // wait until the time has elapsed, or a message that changed the state of the
+                    // tournament occurred.
+                    tokio::select! {
+                        _ = sleep(time) => {},
+                        _ = rx.recv() => {}
+                    }
+                }
+
+                {
+                    match TIMERS.get_mut(&timer_id) {
+                        None => {
+                            // the tournament ended
+                            break;
+                        }
+                        Some(mut timer) => {
+                            match &mut *timer {
+                                Timer {
+                                    tournament: Some(tournament),
+                                    ..
+                                } => {
+                                    if tournament.clock_state.remaining().num_seconds() < 2 {
+                                        if *tournament.cur_level() == Level::Done {
+                                            // we are done and the grace period has expired. Delete the tournament
+                                            break;
+                                        }
+                                        timer.level_up();
+                                    }
+                                }
+                                _ => {
+                                    // the tournament ended
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            info!("Deleting tournament {timer_id}");
+            TIMERS.remove(&timer_id);
+        });
+
         return tournament;
     }
 
@@ -261,7 +360,6 @@ impl Tournament {
                 asof: chrono::Local::now(),
             };
         }
-        self.broadcast(None, TournamentMessage::LevelUp(self.to_roundstate()));
     }
 
     fn update_settings(&mut self, settings: TournamentSettings) {
@@ -290,19 +388,6 @@ impl Tournament {
             }
         }
         self.settings = settings;
-        self.broadcast(None, TournamentMessage::Settings(self.to_roundstate()));
-    }
-
-    fn broadcast(&self, from_device_id: Option<Uuid>, message: TournamentMessage) {
-        let result = self
-            .event_sender
-            .try_broadcast((message.clone(), from_device_id));
-        match result {
-            Ok(_) => {}
-            Err(err) => {
-                error!["error broadcasting message: {err:?}",]
-            }
-        }
     }
 
     fn to_roundstate(&self) -> RoundState {
@@ -312,14 +397,6 @@ impl Tournament {
             cur: self.structure.get_level(self.level).clone(),
             next: self.structure.get_level(self.level + 1).clone(),
             clock: self.clock_state.clone(),
-        }
-    }
-
-    fn to_devicestate(&self, device: Uuid) -> DeviceState {
-        let subscribed = self.subscriptions.contains_key(&device);
-        DeviceState {
-            subscribed,
-            state: self.to_roundstate(),
         }
     }
 }
@@ -491,32 +568,37 @@ impl Structure {
     }
 }
 
-pub async fn create_tournament(
-    device_id: Uuid,
-    timer_id: Uuid,
-) -> Result<DeviceState, ServerFnError> {
-    if let Some(tournament) = TIMERS.get(&timer_id) {
-        return Ok(tournament.to_devicestate(device_id));
+pub async fn create_tournament(timer_id: Uuid) -> Result<(), ServerFnError> {
+    if let Some(timer) = TIMERS.get(&timer_id) {
+        if timer.tournament.is_some() {
+            return Ok(());
+        }
+    } else {
+        TIMERS.insert(timer_id, Timer::new(timer_id));
     }
-    let device_state = {
-        info!("Creating timer {timer_id}");
-        let tournament = Tournament::new(timer_id);
-        let device_state = tournament.to_devicestate(device_id);
-        TIMERS.insert(timer_id, tournament);
-        device_state
-    };
-    let n = TIMERS.len();
-    info!("Timer created, there are {n} timers.");
-    Ok(device_state)
+
+    // if we are here, we have a timer with tournament = None
+    if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
+        info!("Creating tournament {timer_id}");
+        timer.make_tournament();
+        return Ok(());
+    } else {
+        return Err(ServerFnError::new(
+            "Someone deleted the timer as we were creating the tournament",
+        ));
+    }
 }
 
 pub async fn current_state(
     device_id: Uuid,
     timer_id: Uuid,
-) -> Result<Option<DeviceState>, ServerFnError> {
+) -> Result<TimerCompState, ServerFnError> {
     match TIMERS.get(&timer_id) {
-        None => Ok(None),
-        Some(tournament) => Ok(Some(tournament.to_devicestate(device_id))),
+        None => {
+            TIMERS.insert(timer_id, Timer::new(timer_id));
+            Ok(TimerCompState::NoTournament)
+        }
+        Some(tournament) => Ok(tournament.to_timer_comp_state(&device_id)),
     }
 }
 
@@ -526,12 +608,8 @@ pub async fn resume_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), Se
             error!("resumed, timer not found");
             Err(ServerFnError::Args("not found".to_string()))
         }
-        Some(mut tournament) => {
-            tournament.clock_state = tournament.clock_state.resume();
-            tournament.broadcast(
-                Some(device_id),
-                TournamentMessage::Resume(tournament.to_roundstate()),
-            );
+        Some(mut timer) => {
+            timer.resume_tournament(device_id);
             Ok(())
         }
     }
@@ -540,13 +618,11 @@ pub async fn resume_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), Se
 pub async fn pause_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
     match TIMERS.get_mut(&timer_id) {
         None => {
-            error!("Paused, timer not found");
+            error!("Paused, tournament not found");
             Err(ServerFnError::Args("not found".to_string()))
         }
-        Some(mut tournament) => {
-            tournament.clock_state = tournament.clock_state.pause();
-            let state = tournament.to_roundstate();
-            tournament.broadcast(Some(device_id), TournamentMessage::Pause(state.clone()));
+        Some(mut timer) => {
+            timer.pause_tournament(device_id);
             Ok(())
         }
     }
@@ -557,9 +633,10 @@ pub fn tourament_settings(timer_id: Uuid) -> Result<Option<TournamentSettings>, 
         None => {
             return Ok(None);
         }
-        Some(t) => {
-            return Ok(Some(t.settings));
-        }
+        Some(timer) => match &timer.tournament {
+            Some(t) => Ok(Some(t.settings)),
+            None => Ok(None),
+        },
     }
 }
 
@@ -581,14 +658,14 @@ pub fn set_tournament_settings(
 async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocket) {
     let (mut channel, hello) = match TIMERS.get(&timer_id) {
         Some(timer) => (timer.event_sender.new_receiver(), {
-            DeviceMessage {
-                subscribed: timer.subscriptions.contains_key(&device_id),
-                msg: TournamentMessage::Hello(timer.to_roundstate()),
-            }
+            DeviceMessage::NewState(timer.to_timer_comp_state(&device_id))
         }),
         None => {
-            info!("No timer {timer_id}");
-            return;
+            let timer = Timer::new(timer_id);
+            let channel = timer.event_sender.new_receiver();
+            let hello = DeviceMessage::NewState(timer.to_timer_comp_state(&device_id));
+            TIMERS.insert(timer_id, timer);
+            (channel, hello)
         }
     };
     let message = JsonSerdeWasmCodec::encode(&hello).expect("Couldn't encode");
@@ -604,14 +681,18 @@ async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocket) {
          x = channel.recv() => {
             match x {
                 Ok((tm, _sender)) => {
-                    info!("Sending Message");
-                    let subscribed = if let Some(timer) = TIMERS.get(&timer_id) {
-                        timer.subscriptions.contains_key(&device_id)
-                    } else {
-                        false
+                    if let TournamentMessage::LevelUp(_) = tm {
+                        let message = JsonSerdeWasmCodec::encode(&DeviceMessage::Beep).expect("Couldn't encode");
+                        if let Err(e) = socket.send(Message::Text(message)).await {
+                            info!("couldn't send {e}");
+                            break;
+                        }
+                    }
+                    let message = match TIMERS.get(&timer_id) {
+                        Some(timer) => timer.to_timer_comp_state(&device_id),
+                        None => TimerCompState::NoTournament
                     };
-                    let dm = DeviceMessage{ msg: tm, subscribed };
-                    let message = JsonSerdeWasmCodec::encode(&dm).expect("Couldn't encode");
+                    let message = JsonSerdeWasmCodec::encode(&DeviceMessage::NewState(message)).expect("Couldn't encode");
                     if let Err(e) = socket.send(Message::Text(message)).await {
                         info!("couldn't send {e}");
                         break;
@@ -637,7 +718,7 @@ async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocket) {
 }
 
 pub async fn websocket_handler(
-    Path((timer_id,device_id)): Path<(Uuid, Uuid)>,
+    Path((timer_id, device_id)): Path<(Uuid, Uuid)>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
     ws.on_upgrade(async move |socket| handle_socket(timer_id, device_id, socket).await)

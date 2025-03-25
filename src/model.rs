@@ -161,15 +161,16 @@ pub struct RoundState {
     pub clock: ClockState,
 }
 
-impl RoundState {
-    pub fn into_device_state(self, subscribed: bool) -> DeviceState {
-        DeviceState {
-            subscribed,
-            state: self,
-        }
-    }
+/// The state of the timer component
+#[derive(serde::Deserialize, serde::Serialize, Clone, PartialEq, Debug)]
+pub enum TimerCompState {
+    Loading,
+    NoTournament,
+    Running { subscribed: bool, state: RoundState },
+    Error(String),
 }
 
+// an internal message that is passed on the backend message bus
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub enum TournamentMessage {
     Hello(RoundState),
@@ -179,32 +180,11 @@ pub enum TournamentMessage {
     Settings(RoundState),
 }
 
-// the state of the tournament with some extra fields for a particular device
-#[derive(Clone, serde::Deserialize, serde::Serialize, Debug, PartialEq)]
-pub struct DeviceState {
-    pub subscribed: bool,
-    pub state: RoundState,
-}
-
+// a message sent from the backend to the app
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
-pub struct DeviceMessage {
-    pub msg: TournamentMessage,
-    pub subscribed: bool,
-}
-
-impl DeviceMessage {
-    pub fn into_device_state(self) -> DeviceState {
-        DeviceState {
-            subscribed: self.subscribed,
-            state: match self.msg {
-                TournamentMessage::Hello(round_state) => round_state,
-                TournamentMessage::Pause(round_state) => round_state,
-                TournamentMessage::Resume(round_state) => round_state,
-                TournamentMessage::LevelUp(round_state) => round_state,
-                TournamentMessage::Settings(round_state) => round_state,
-            },
-        }
-    }
+pub enum DeviceMessage {
+    NewState(TimerCompState),
+    Beep,
 }
 
 #[derive(Copy, Clone, serde::Deserialize, serde::Serialize, PartialEq, Debug)]

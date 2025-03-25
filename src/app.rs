@@ -62,7 +62,7 @@ pub fn App() -> impl IntoView {
 }
 
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-struct Timer {
+struct TimerRef {
     id: Uuid,
     name: String,
 }
@@ -146,13 +146,13 @@ fn CloseButton() -> impl IntoView {
 #[component]
 fn HomePage() -> impl IntoView {
     use icondata::AiDeleteFilled;
-    let (timers, set_timers, _) = use_local_storage_with_options::<Vec<Timer>, JsonSerdeCodec>(
+    let (timers, set_timers, _) = use_local_storage_with_options::<Vec<TimerRef>, JsonSerdeCodec>(
         "timers",
         UseStorageOptions::default().delay_during_hydration(true),
     );
     let name_signal = RwSignal::<Result<String, String>>::new(Err("Required".to_string()));
     let onsubmit = move |_| {
-        set_timers.write().push(Timer {
+        set_timers.write().push(TimerRef {
             id: Uuid::new_v4(),
             name: name_signal.get().unwrap(),
         });
@@ -184,7 +184,7 @@ fn HomePage() -> impl IntoView {
             if let Some(caps) = re.captures(&link) {
                 if let Ok(id) = Uuid::parse_str(caps.get(1).unwrap().as_str()) {
                     let name: String = caps.get(2).unwrap().as_str().to_string();
-                    set_timers.write().push(Timer { id, name });
+                    set_timers.write().push(TimerRef { id, name });
                 }
             }
         };
@@ -293,34 +293,10 @@ fn TimerPage() -> impl IntoView {
     }
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Clone, PartialEq)]
-enum TimerCompState {
-    Loading,
-    NoTournament,
-    Running(DeviceState),
-    Error(String),
-}
-
-impl TimerCompState {
-    fn from_current(x: Result<Option<DeviceState>, ServerFnError>) -> TimerCompState {
-        match x {
-            Err(e) => TimerCompState::Error(e.to_string()),
-            Ok(None) => TimerCompState::NoTournament,
-            Ok(Some(ds)) => TimerCompState::Running(ds),
-        }
-    }
-    fn from_create(x: Result<DeviceState, ServerFnError>) -> TimerCompState {
-        match x {
-            Err(e) => TimerCompState::Error(e.to_string()),
-            Ok(ds) => TimerCompState::Running(ds),
-        }
-    }
-}
-
 #[cfg(not(feature = "ssr"))]
 fn maybe_add_timer(timer_id: Uuid, timer_name: &str) {
     // add the timer to local storage if we do not have it yet
-    let (timers, set_timers, _) = use_local_storage_with_options::<Vec<Timer>, JsonSerdeCodec>(
+    let (timers, set_timers, _) = use_local_storage_with_options::<Vec<TimerRef>, JsonSerdeCodec>(
         "timers",
         UseStorageOptions::default().delay_during_hydration(true),
     );
@@ -328,7 +304,7 @@ fn maybe_add_timer(timer_id: Uuid, timer_name: &str) {
     Effect::new(move |_| {
         if let None = timers.read().iter().find(|t| t.id == timer_id) {
             // timer is not in data, add it
-            set_timers.write().push(Timer {
+            set_timers.write().push(TimerRef {
                 id: timer_id,
                 name: timer_name.clone(),
             });
@@ -359,51 +335,40 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
             TimerCompState::Loading
         } else if settable_state.get() != TimerCompState::Loading {
             settable_state.get()
-        } else if let Some(x) = initial_state.get() {
-            TimerCompState::from_current(x)
+        } else if let Some(Err(x)) = initial_state.get() {
+            TimerCompState::Error(x.to_string())
         } else {
-            TimerCompState::Loading
+            if let Some(Ok(x)) = initial_state.get() {
+                x
+            } else {
+                panic!("All cases were exhausted!")
+            }
         }
     };
-    let UseWebSocketReturn {
-        ready_state,
-        message,
-        open,
-        close,
-        ..
-    } = use_websocket_with_options::<DeviceMessage, DeviceMessage, JsonSerdeCodec, _, _>(
-        &format!("/ws/{}/{}", timer_id, device_id),
-        UseWebSocketOptions::default()
-            .immediate(false)
-            .on_message_raw(|m| {
-                info!("On Raw Message {:?}", m);
-            })
-            .on_error(|e| {
-                info!("On Error {:?}", e);
-            }),
-    );
-    Effect::new(move |_| match my_state() {
-        TimerCompState::Running(device_state) => {
-            if ready_state.get() == ConnectionReadyState::Closed {
-                info!("Opening channel");
-                open();
-            } else {
-                let message = message.get();
-                if let Some(dm) = message {
-                    if let TournamentMessage::LevelUp(_) = &dm.msg {
-                        beep();
-                    }
-                    let new_device_state = dm.into_device_state();
-                    if new_device_state != device_state {
-                        settable_state.set(TimerCompState::Running(new_device_state));
+    let UseWebSocketReturn { message, .. } =
+        use_websocket_with_options::<DeviceMessage, DeviceMessage, JsonSerdeCodec, _, _>(
+            &format!("/ws/{}/{}", timer_id, device_id),
+            UseWebSocketOptions::default()
+                .reconnect_limit(leptos_use::ReconnectLimit::Limited(100))
+                .on_message_raw(|m| {
+                    info!("On Raw Message {:?}", m);
+                })
+                .on_error(|e| {
+                    info!("On Error {:?}", e);
+                }),
+        );
+    Effect::new(move |_| {
+        let state = my_state();
+        let message = message.get();
+        if let Some(dm) = message {
+            match dm {
+                DeviceMessage::NewState(timer_comp_state) => {
+                    if timer_comp_state != state {
+                        settable_state.set(timer_comp_state);
                     }
                 }
-            }
-        }
-        _ => {
-            if ready_state.get() != ConnectionReadyState::Closed {
-                close()
-            }
+                DeviceMessage::Beep => todo!(),
+            };
         }
     });
 
@@ -421,14 +386,13 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
                             <div>"No tournament running"</div>
                             <button on:click=move |_| {
                                 spawn_local(async move {
-                                    let t = create_tournament(device_id, timer_id).await;
-                                    settable_state.set(TimerCompState::from_create(t))
+                                    create_tournament(timer_id).await.unwrap();
                                 });
                             }>Start</button>
                         }
                             .into_any()
                     }
-                    TimerCompState::Running(DeviceState { state, .. }) => {
+                    TimerCompState::Running { state, .. } => {
                         let next_display_string = state.next.make_display_string();
                         let cur_display_string = state.cur.make_display_string();
 
@@ -443,7 +407,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
                 }
             }}
             {move || {
-                if let TimerCompState::Running(DeviceState { subscribed, .. }) = my_state() {
+                if let TimerCompState::Running { subscribed, .. } = my_state() {
                     Some(
                         view! {
                             <div>
@@ -468,7 +432,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
                 }
             }}
             {move || {
-                if let TimerCompState::Running(DeviceState { state, .. }) = my_state() {
+                if let TimerCompState::Running { state, .. } = my_state() {
                     match state.clock {
                         ClockState::Paused { .. } => {
                             Some(
@@ -510,7 +474,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
 }
 
 #[component]
-fn SettingsButton(timer_id : Uuid, timer_name : String) -> impl IntoView {
+fn SettingsButton(timer_id: Uuid, timer_name: String) -> impl IntoView {
     let nav = use_navigate();
     view! {
         <button on:click=move |_| {
@@ -519,7 +483,6 @@ fn SettingsButton(timer_id : Uuid, timer_name : String) -> impl IntoView {
             nav(&url, NavigateOptions::default());
         }>"Settings"</button>
     }
-
 }
 
 #[component]
@@ -544,16 +507,13 @@ fn Clock(state: ClockState) -> impl IntoView {
 pub async fn current_state(
     device_id: Uuid,
     timer_id: Uuid,
-) -> Result<Option<DeviceState>, ServerFnError> {
+) -> Result<TimerCompState, ServerFnError> {
     crate::backend::current_state(device_id, timer_id).await
 }
 
 #[server]
-pub async fn create_tournament(
-    device_id: Uuid,
-    timer_id: Uuid,
-) -> Result<DeviceState, ServerFnError> {
-    crate::backend::create_tournament(device_id, timer_id).await
+pub async fn create_tournament(timer_id: Uuid) -> Result<(), ServerFnError> {
+    crate::backend::create_tournament(timer_id).await
 }
 
 fn register_service_worker(device_id: Uuid, timer_id: Uuid) {
