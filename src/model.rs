@@ -173,6 +173,7 @@ pub enum TimerCompState {
 // an internal message that is passed on the backend message bus
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub enum TournamentMessage {
+    SubscriptionChange(Uuid),
     Hello(RoundState),
     Pause(RoundState),
     Resume(RoundState),

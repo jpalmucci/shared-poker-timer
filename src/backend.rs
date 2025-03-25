@@ -153,6 +153,8 @@ impl Timer {
                                 title: "Update".to_string(),
                                 body: "Tournament settings have changed".to_string(),
                             },
+                            // this doesnt result in a notification
+                            TournamentMessage::SubscriptionChange(_) => continue
                         });
                         let subscriptions = match TIMERS.get(&timer_id) {
                             Some(tournament) => tournament.subscriptions.clone(),
@@ -681,6 +683,12 @@ async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocket) {
          x = channel.recv() => {
             match x {
                 Ok((tm, _sender)) => {
+                    if let TournamentMessage::SubscriptionChange(changing_device) = tm {
+                        // this only changes the state of the device that is changing its subscription
+                        if changing_device != device_id {
+                            continue;
+                        }
+                    }
                     if let TournamentMessage::LevelUp(_) = tm {
                         let message = JsonSerdeWasmCodec::encode(&DeviceMessage::Beep).expect("Couldn't encode");
                         if let Err(e) = socket.send(Message::Text(message)).await {
@@ -805,6 +813,7 @@ pub async fn subscribe(
             t.subscriptions.remove(&device_id);
             t.subscriptions.insert(device_id, payload);
             info!("There are {} subscriptions", t.subscriptions.len());
+            (&*t).broadcast(None,TournamentMessage::SubscriptionChange(device_id));
             return (StatusCode::OK, "ok".to_string());
         }
     }
@@ -822,6 +831,7 @@ pub async fn unsubscribe(
         Some(mut t) => {
             t.subscriptions.remove(&device_id);
             info!("There are {} subscriptions", t.subscriptions.len());
+            (&*t).broadcast(None,TournamentMessage::SubscriptionChange(device_id));
             Ok("ok".to_string())
         }
     }

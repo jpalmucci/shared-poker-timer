@@ -121,12 +121,15 @@ fn required(s: &str) -> Option<String> {
 }
 
 #[component]
-fn CloseButton() -> impl IntoView {
+fn CloseButton(href : Option<String>) -> impl IntoView {
     let nav = use_navigate();
     view! {
         <div style:color="#FFFFFF" style:background_color="#000000" style:float="right">
             <a on:click=move |_evt| {
-                nav("/", NavigateOptions::default());
+                match &href {
+                    Some(href) => nav(&href, NavigateOptions::default()),
+                    None => nav(&"/", NavigateOptions::default())
+                };
             }>
                 <Icon icon=icondata::AiCloseOutlined />
             </a>
@@ -270,7 +273,7 @@ fn extract_params() -> Result<(Uuid, String, Uuid), String> {
 #[component]
 fn TimerPage() -> impl IntoView {
     view! {
-        <CloseButton />
+        <CloseButton href=None />
         {|| {
             match extract_params() {
                 Ok((timer_id, timer_name, device_id)) => {
@@ -294,31 +297,52 @@ fn TimerPage() -> impl IntoView {
 }
 
 #[cfg(not(feature = "ssr"))]
-fn maybe_add_timer(timer_id: Uuid, timer_name: &str) {
-    // add the timer to local storage if we do not have it yet
-    let (timers, set_timers, _) = use_local_storage_with_options::<Vec<TimerRef>, JsonSerdeCodec>(
-        "timers",
-        UseStorageOptions::default().delay_during_hydration(true),
-    );
-    let timer_name = timer_name.to_string();
-    Effect::new(move |_| {
-        if let None = timers.read().iter().find(|t| t.id == timer_id) {
-            // timer is not in data, add it
-            set_timers.write().push(TimerRef {
-                id: timer_id,
-                name: timer_name.clone(),
-            });
-        }
-    });
+fn maybe_add_timer(timer_id: Uuid, timer_name: &str)  {
+    if let Ok(Some(storage)) = window().local_storage() {
+        match storage.get_item("timers") {
+            Ok(Some(item)) => {
+                match serde_json::from_str::<Vec<TimerRef>>(&item) {
+                    Ok(mut timers) => {
+                        if let None = timers.iter().find(|t| t.id == timer_id) {
+                            // timer is not in data, add it
+                            timers.push(TimerRef {
+                                id: timer_id,
+                                name: timer_name.to_string(),
+                            });
+
+                            storage.set_item("timers", &serde_json::to_string::<Vec<TimerRef>>(&timers).expect("Couldn't serialize"));
+                        }
+                    },
+                    _ => {
+                        // couldn't parse the storage, replace it
+                        storage.set_item("timers", &serde_json::to_string::<Vec<TimerRef>>(&vec![TimerRef {
+                            id: timer_id,
+                            name: timer_name.to_string(),
+                        }]).expect("Couldn't Serialize"));
+                    }
+
+                }
+            },
+            _ => {
+                // no string exists yet
+                storage.set_item("timers", &serde_json::to_string::<Vec<TimerRef>>(&vec![TimerRef {
+                    id: timer_id,
+                    name: timer_name.to_string(),
+                }]).expect("Couldn't Serialize"));
+
+            }
+        };
+    };
 }
 
 #[cfg(feature = "ssr")]
-fn maybe_add_timer(_timer_id: Uuid, _timer_name: &str) {}
+fn maybe_add_timer(_timer_id: Uuid, _timer_name: &str) {
+    // this does nothing on the server
+}
 
 #[component]
 fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoView {
-    // TODO - fix maybe_add_timer
-    // maybe_add_timer(timer_id, &timer_name);
+    maybe_add_timer(timer_id, &timer_name);
     let initial_state = Resource::new(
         || extract_params(),
         move |params| async move {
@@ -580,12 +604,12 @@ pub fn beep() {
 #[component]
 fn SettingsPage() -> impl IntoView {
     view! {
-        <CloseButton />
         {|| {
             match extract_params() {
                 Ok((timer_id, timer_name, device_id)) => {
                     let encoded_name = urlencoding::encode(&timer_name).into_owned();
                     view! {
+                        <CloseButton href=Some(format!("/timer/{timer_id}/{encoded_name}")) />
                         <h1>"Settings"</h1>
                         <div>{timer_id.to_string()}</div>
                         <div>{timer_name}</div>
