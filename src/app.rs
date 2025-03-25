@@ -1,4 +1,5 @@
 use crate::model::*;
+use chrono::Duration;
 use codee::string::JsonSerdeCodec;
 use lazy_regex::regex;
 use leptos::{logging::error, prelude::*, task::spawn_local};
@@ -10,7 +11,6 @@ use leptos_router::{
     path, NavigateOptions, StaticSegment,
 };
 use leptos_use::{
-    core::ConnectionReadyState,
     storage::{use_local_storage_with_options, UseStorageOptions},
     use_interval, use_websocket_with_options, UseWebSocketOptions, UseWebSocketReturn,
 };
@@ -121,14 +121,14 @@ fn required(s: &str) -> Option<String> {
 }
 
 #[component]
-fn CloseButton(href : Option<String>) -> impl IntoView {
+fn CloseButton(href: Option<String>) -> impl IntoView {
     let nav = use_navigate();
     view! {
         <div style:color="#FFFFFF" style:background_color="#000000" style:float="right">
             <a on:click=move |_evt| {
                 match &href {
                     Some(href) => nav(&href, NavigateOptions::default()),
-                    None => nav(&"/", NavigateOptions::default())
+                    None => nav(&"/", NavigateOptions::default()),
                 };
             }>
                 <Icon icon=icondata::AiCloseOutlined />
@@ -297,7 +297,7 @@ fn TimerPage() -> impl IntoView {
 }
 
 #[cfg(not(feature = "ssr"))]
-fn maybe_add_timer(timer_id: Uuid, timer_name: &str)  {
+fn maybe_add_timer(timer_id: Uuid, timer_name: &str) {
     if let Ok(Some(storage)) = window().local_storage() {
         match storage.get_item("timers") {
             Ok(Some(item)) => {
@@ -310,26 +310,36 @@ fn maybe_add_timer(timer_id: Uuid, timer_name: &str)  {
                                 name: timer_name.to_string(),
                             });
 
-                            storage.set_item("timers", &serde_json::to_string::<Vec<TimerRef>>(&timers).expect("Couldn't serialize"));
+                            storage.set_item(
+                                "timers",
+                                &serde_json::to_string::<Vec<TimerRef>>(&timers)
+                                    .expect("Couldn't serialize"),
+                            );
                         }
-                    },
+                    }
                     _ => {
                         // couldn't parse the storage, replace it
-                        storage.set_item("timers", &serde_json::to_string::<Vec<TimerRef>>(&vec![TimerRef {
-                            id: timer_id,
-                            name: timer_name.to_string(),
-                        }]).expect("Couldn't Serialize"));
+                        storage.set_item(
+                            "timers",
+                            &serde_json::to_string::<Vec<TimerRef>>(&vec![TimerRef {
+                                id: timer_id,
+                                name: timer_name.to_string(),
+                            }])
+                            .expect("Couldn't Serialize"),
+                        );
                     }
-
                 }
-            },
+            }
             _ => {
                 // no string exists yet
-                storage.set_item("timers", &serde_json::to_string::<Vec<TimerRef>>(&vec![TimerRef {
-                    id: timer_id,
-                    name: timer_name.to_string(),
-                }]).expect("Couldn't Serialize"));
-
+                storage.set_item(
+                    "timers",
+                    &serde_json::to_string::<Vec<TimerRef>>(&vec![TimerRef {
+                        id: timer_id,
+                        name: timer_name.to_string(),
+                    }])
+                    .expect("Couldn't Serialize"),
+                );
             }
         };
     };
@@ -602,18 +612,117 @@ pub fn beep() {
 }
 
 #[component]
-fn SettingsPage() -> impl IntoView {
+fn InputOptionalDuration(
+    name: String,
+    signal: RwSignal<Result<Option<Duration>, String>>,
+) -> impl IntoView {
     view! {
-        {|| {
+        <div class="form-group">
+            <label for=name.clone()>{name.clone()}</label>
+            " "
+            <input
+                type="text"
+                name=name
+                on:input:target=move |evt| {
+                    let v = evt.target().value();
+                    if v.len() == 0 {
+                        signal.set(Ok(None));
+                    } else {
+                        match v.parse::<i64>() {
+                            Ok(v) => signal.set(Ok(Some(Duration::minutes(v)))),
+                            Err(e) => signal.set(Err(e.to_string())),
+                        }
+                    }
+                }
+                prop:value=move || {
+                    match signal.get() {
+                        Ok(None) => "".to_string(),
+                        Ok(Some(duration)) => duration.num_minutes().to_string(),
+                        Err(_) => "".to_string(),
+                    }
+                }
+            />
+            " min"
+            {move || {
+                if let Err(s) = signal.get() {
+                    Some(view! { <div class="error-message">{s}</div> })
+                } else {
+                    None
+                }
+            }}
+        </div>
+    }
+}
+
+// TODO - forward level
+// TODO - back level
+// TODO - change level time
+
+#[component]
+fn SettingsPage() -> impl IntoView {
+    let duration_override_signal =
+        RwSignal::<Result<Option<Duration>, String>>::new(Err("Required".to_string()));
+
+    let old_settings: Resource<Result<Option<Duration>, ServerFnError>> = Resource::new(
+        || extract_params(),
+        |params| async move {
+            if let Ok((timer_id, _, _)) = params {
+                tournament_settings(timer_id).await
+            } else {
+                Err(ServerFnError::new("tournament_settings failed"))
+            }
+        },
+    );
+    Effect::new(move || {
+        if let Some(Ok(duration_override)) = old_settings.get() {
+            duration_override_signal.set(Ok(duration_override));
+        }
+    });
+
+    view! {
+        {move || {
             match extract_params() {
-                Ok((timer_id, timer_name, device_id)) => {
+                Ok((timer_id, timer_name, _device_id)) => {
+                    let error = duration_override_signal.get().is_err();
                     let encoded_name = urlencoding::encode(&timer_name).into_owned();
+
                     view! {
                         <CloseButton href=Some(format!("/timer/{timer_id}/{encoded_name}")) />
                         <h1>"Settings"</h1>
-                        <div>{timer_id.to_string()}</div>
-                        <div>{timer_name}</div>
-                        <div>{device_id.to_string()}</div>
+                        <form
+                            class="form"
+                            on:submit:target=move |evt| {
+                                evt.prevent_default();
+                                if let Ok(v) = duration_override_signal.get() {
+                                    let encoded_name = urlencoding::encode(&timer_name)
+                                        .into_owned();
+                                    spawn_local(async move {
+                                        if let Err(e) = set_tournament_settings(
+                                                timer_id,
+                                                v
+                                            )
+                                            .await
+                                        {
+                                            duration_override_signal.set(Err(e.to_string()));
+                                        } else {
+                                            let nav = use_navigate();
+                                            nav(
+                                                &format!("/timer/{timer_id}/{encoded_name}"),
+                                                NavigateOptions::default(),
+                                            );
+                                        }
+                                    })
+                                }
+                            }
+                        >
+                            <InputOptionalDuration
+                                name="Duration Override".to_string()
+                                signal=duration_override_signal
+                            />
+                            <button type="submit" disabled=error>
+                                "Save"
+                            </button>
+                        </form>
                     }
                         .into_any()
                 }
@@ -635,4 +744,17 @@ async fn resume_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), Server
 #[server]
 async fn pause_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
     crate::backend::pause_tournament(device_id, timer_id).await
+}
+
+#[server]
+async fn set_tournament_settings(
+    timer_id: Uuid,
+    duration_override: Option<Duration>,
+) -> Result<(), ServerFnError> {
+    crate::backend::set_tournament_settings(timer_id, duration_override)
+}
+
+#[server]
+async fn tournament_settings(timer_id: Uuid) -> Result<Option<Duration>, ServerFnError> {
+    return crate::backend::tourament_settings(timer_id);
 }

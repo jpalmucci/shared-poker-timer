@@ -187,16 +187,3 @@ pub enum DeviceMessage {
     NewState(TimerCompState),
     Beep,
 }
-
-#[derive(Copy, Clone, serde::Deserialize, serde::Serialize, PartialEq, Debug)]
-pub struct TournamentSettings {
-    pub duration_override: Option<Duration>,
-}
-
-impl TournamentSettings {
-    pub fn default() -> TournamentSettings {
-        TournamentSettings {
-            duration_override: None,
-        }
-    }
-}

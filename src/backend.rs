@@ -154,7 +154,7 @@ impl Timer {
                                 body: "Tournament settings have changed".to_string(),
                             },
                             // this doesnt result in a notification
-                            TournamentMessage::SubscriptionChange(_) => continue
+                            TournamentMessage::SubscriptionChange(_) => continue,
                         });
                         let subscriptions = match TIMERS.get(&timer_id) {
                             Some(tournament) => tournament.subscriptions.clone(),
@@ -218,9 +218,9 @@ impl Timer {
             TimerCompState::NoTournament
         }
     }
-    fn update_settings(&mut self, settings: TournamentSettings) {
+    fn update_settings(&mut self, duration_override: Option<Duration>) {
         if let Some(ref mut tournament) = &mut self.tournament {
-            tournament.update_settings(settings);
+            tournament.update_settings(duration_override);
             let message = TournamentMessage::Settings(tournament.to_roundstate());
             (&*self).broadcast(None, message);
         }
@@ -248,7 +248,7 @@ pub struct Tournament {
     structure: Arc<Structure>,
     level: usize,
     clock_state: ClockState,
-    settings: TournamentSettings,
+    duration_override: Option<Duration>,
 }
 
 impl Tournament {
@@ -263,7 +263,7 @@ impl Tournament {
             clock_state: ClockState::Paused {
                 remaining: str.get_level(1).duration(),
             },
-            settings: TournamentSettings::default(),
+            duration_override: None,
         };
 
         // start a thread to do the level changes
@@ -353,7 +353,7 @@ impl Tournament {
                 asof: chrono::Local::now(),
             };
         } else {
-            let duration = match self.settings.duration_override {
+            let duration = match self.duration_override {
                 Some(duration) => duration,
                 None => cur.duration(),
             };
@@ -364,14 +364,14 @@ impl Tournament {
         }
     }
 
-    fn update_settings(&mut self, settings: TournamentSettings) {
+    fn update_settings(&mut self, duration_override: Option<Duration>) {
         // if the round duration is changing, update the clock_state
         let cur = &self.structure.get_level(self.level);
-        let current_duration = match self.settings.duration_override {
+        let current_duration = match self.duration_override {
             Some(d) => d,
             None => cur.duration(),
         };
-        let new_duration = match settings.duration_override {
+        let new_duration = match duration_override {
             Some(d) => d,
             None => cur.duration(),
         };
@@ -389,7 +389,7 @@ impl Tournament {
                 };
             }
         }
-        self.settings = settings;
+        self.duration_override = duration_override;
     }
 
     fn to_roundstate(&self) -> RoundState {
@@ -630,28 +630,28 @@ pub async fn pause_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), Ser
     }
 }
 
-pub fn tourament_settings(timer_id: Uuid) -> Result<Option<TournamentSettings>, ServerFnError> {
+pub fn tourament_settings(timer_id: Uuid) -> Result<Option<Duration>, ServerFnError> {
     match TIMERS.get(&timer_id) {
         None => {
-            return Ok(None);
+            return Err(ServerFnError::new("running tournament"));
         }
         Some(timer) => match &timer.tournament {
-            Some(t) => Ok(Some(t.settings)),
-            None => Ok(None),
+            Some(t) => Ok(t.duration_override),
+            None => Err(ServerFnError::new("running tournament")),
         },
     }
 }
 
 pub fn set_tournament_settings(
     timer_id: Uuid,
-    settings: TournamentSettings,
+    duration_override: Option<Duration>,
 ) -> Result<(), ServerFnError> {
     match TIMERS.get_mut(&timer_id) {
         None => {
             return Err(ServerFnError::new("Tournament not running"));
         }
         Some(mut t) => {
-            t.update_settings(settings);
+            t.update_settings(duration_override);
             return Ok(());
         }
     }
@@ -813,7 +813,7 @@ pub async fn subscribe(
             t.subscriptions.remove(&device_id);
             t.subscriptions.insert(device_id, payload);
             info!("There are {} subscriptions", t.subscriptions.len());
-            (&*t).broadcast(None,TournamentMessage::SubscriptionChange(device_id));
+            (&*t).broadcast(None, TournamentMessage::SubscriptionChange(device_id));
             return (StatusCode::OK, "ok".to_string());
         }
     }
@@ -831,7 +831,7 @@ pub async fn unsubscribe(
         Some(mut t) => {
             t.subscriptions.remove(&device_id);
             info!("There are {} subscriptions", t.subscriptions.len());
-            (&*t).broadcast(None,TournamentMessage::SubscriptionChange(device_id));
+            (&*t).broadcast(None, TournamentMessage::SubscriptionChange(device_id));
             Ok("ok".to_string())
         }
     }
