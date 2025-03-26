@@ -216,3 +216,13 @@ pub enum DeviceMessage {
     NewState(TimerCompState),
     Beep,
 }
+
+// a message sent from the app to the backend
+#[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
+pub enum Command {
+    Pause,
+    Resume,
+    NextLevel,
+    PrevLevel,
+    Terminate,
+}

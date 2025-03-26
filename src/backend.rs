@@ -460,9 +460,12 @@ impl Timer {
                                 body: "Tournament settings have changed".to_string(),
                             },
                             // this doesnt result in a notification
-                            TournamentMessage::SubscriptionChange(_) => continue,
+                            TournamentMessage::Goodbye => Notification {
+                                title: "Update".to_string(),
+                                body: "Tournament has been terminated".to_string(),
+                            },
                             // this doesnt result in a notification
-                            TournamentMessage::Goodbye => continue,
+                            TournamentMessage::SubscriptionChange(_) => continue,
                         });
                         let subscriptions = match TIMERS.get(&timer_id) {
                             Some(tournament) => tournament.subscriptions.clone(),
@@ -508,26 +511,32 @@ impl Timer {
         }
     }
     /// return true if the level is done
-    fn level_up(&mut self) -> bool {
-        if self.tournament.is_none() {
-            return true;
-        }
-        let done = match self.tournament {
-            Some(ref mut t) => t.level_up(),
+    fn level_up(&mut self, delta: i8) -> bool {
+        let result = match self.tournament {
             None => {
                 return true;
             }
+            Some(ref mut tournament) => tournament.level_up(delta),
         };
-        if done {
-            self.tournament = None;
-            (&*self).broadcast(None, TournamentMessage::Goodbye);
-            true
-        } else {
-            let message =
-                TournamentMessage::LevelUp(self.tournament.as_ref().unwrap().to_roundstate());
-            (&*self).broadcast(None, message);
-            false
+        match result {
+            LevelUpResult::Invalid => false,
+            LevelUpResult::Done => {
+                self.tournament = None;
+                (&*self).broadcast(None, TournamentMessage::Goodbye);
+                true
+            }
+            LevelUpResult::Ok => {
+                let message =
+                    TournamentMessage::LevelUp(self.tournament.as_ref().unwrap().to_roundstate());
+                (&*self).broadcast(None, message);
+                false
+            }
         }
+    }
+
+    fn terminate(&mut self) {
+        self.tournament = None;
+        (&*self).broadcast(None, TournamentMessage::Goodbye);
     }
 
     fn to_timer_comp_state(&self, device: &Uuid) -> TimerCompState {
@@ -572,6 +581,12 @@ pub struct Tournament {
     level: usize,
     clock_state: ClockState,
     duration_override: Option<Duration>,
+}
+// return true if the tournament is complete
+enum LevelUpResult {
+    Done,
+    Invalid,
+    Ok,
 }
 
 impl Tournament {
@@ -632,7 +647,7 @@ impl Tournament {
                                     ..
                                 } => {
                                     if tournament.clock_state.remaining().num_seconds() < 2 {
-                                        let done = timer.level_up();
+                                        let done = timer.level_up(1);
                                         if done {
                                             break;
                                         }
@@ -655,12 +670,14 @@ impl Tournament {
         return tournament;
     }
 
-    // return true if the tournament is complete
-    fn level_up(&mut self) -> bool {
+    fn level_up(&mut self, delta: i8) -> LevelUpResult {
+        if self.level as i8 + delta < 0 {
+            return LevelUpResult::Invalid;
+        }
         self.level += 1;
         let level = self.structure.get_level(self.level);
         if level == &Level::Done {
-            return true;
+            return LevelUpResult::Done;
         }
         let duration = match self.duration_override {
             Some(duration) => duration,
@@ -670,7 +687,7 @@ impl Tournament {
             remaining: duration,
             asof: chrono::Local::now(),
         };
-        false
+        LevelUpResult::Ok
     }
 
     fn update_settings(&mut self, duration_override: Option<Duration>) {
@@ -793,32 +810,6 @@ pub async fn current_state(
     }
 }
 
-pub async fn resume_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
-    match TIMERS.get_mut(&timer_id) {
-        None => {
-            error!("resumed, timer not found");
-            Err(ServerFnError::Args("not found".to_string()))
-        }
-        Some(mut timer) => {
-            timer.resume_tournament(device_id);
-            Ok(())
-        }
-    }
-}
-
-pub async fn pause_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
-    match TIMERS.get_mut(&timer_id) {
-        None => {
-            error!("Paused, tournament not found");
-            Err(ServerFnError::Args("not found".to_string()))
-        }
-        Some(mut timer) => {
-            timer.pause_tournament(device_id);
-            Ok(())
-        }
-    }
-}
-
 pub fn tourament_settings(timer_id: Uuid) -> Result<Option<Duration>, ServerFnError> {
     match TIMERS.get(&timer_id) {
         None => {
@@ -904,10 +895,38 @@ async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocket) {
 
         x = socket.recv() => {
             match x {
-                None => { break; },
-                Some(msg) => {
-                    info!("{msg:?}");
-                }
+                Some(Ok(Message::Text(msg))) => {
+                    match serde_json::from_str::<Command>(&msg) {
+                        Ok(Command::Resume) =>  {
+                            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
+                                timer.resume_tournament(device_id);
+                            }
+                        },
+                        Ok(Command::Pause) =>  {
+                            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
+                                timer.pause_tournament(device_id);
+                            }
+                        },
+                        Ok(Command::PrevLevel) =>  {
+                            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
+                                timer.level_up(-1);
+                            }
+                        },
+                        Ok(Command::NextLevel) =>  {
+                            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
+                                timer.level_up(1);
+                            }
+                        },
+                        Ok(Command::Terminate) =>  {
+                            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
+                                timer.terminate();
+                            }
+                        },
+
+                        Err(_) => break
+                    }
+                },
+                _ => { break; },
             }
         }
         }

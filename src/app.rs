@@ -12,7 +12,7 @@ use leptos_router::{
 };
 use leptos_use::{
     storage::{use_local_storage_with_options, UseStorageOptions},
-    use_interval, use_websocket_with_options, UseWebSocketOptions, UseWebSocketReturn,
+    use_interval, use_websocket_with_options, UseWebSocketOptions,
 };
 use log::info;
 use uuid::Uuid;
@@ -132,14 +132,6 @@ fn CloseButton(href: Option<String>) -> impl IntoView {
             </a>
         </div>
     }
-    // div {
-    //     style: "color: #ffffff; background-color: #000000; float: right",
-    //     onclick: |_evt| {
-    //         let nav = navigator();
-    //         nav.push( Route::HomePage { });
-    //     },
-    //     Icon { icon: FaXmark }
-    // }
 }
 
 /// Renders the home page of your application.
@@ -193,6 +185,7 @@ fn HomePage() -> impl IntoView {
     view! {
         <Link rel="manifest" href="/manifest.json" />
         <Title text="Shared Poker timer" />
+        // TODO: write an explanation of what this is
         <h1>"My Timers"</h1>
         <div class="form">
             <For
@@ -357,20 +350,19 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
     maybe_add_timer(timer_id, &timer_name);
     let encoded_name = urlencoding::encode(&timer_name).into_owned();
     let settable_state = RwSignal::new(TimerCompState::Loading);
-    let UseWebSocketReturn { message, .. } =
-        use_websocket_with_options::<DeviceMessage, DeviceMessage, JsonSerdeCodec, _, _>(
-            &format!("/{}/ws/{}", timer_id, device_id),
-            UseWebSocketOptions::default()
-                .reconnect_limit(leptos_use::ReconnectLimit::Limited(100))
-                .on_message_raw(|m| {
-                    info!("On Raw Message {:?}", m);
-                })
-                .on_error(|e| {
-                    info!("On Error {:?}", e);
-                }),
-        );
+    let socket = use_websocket_with_options::<Command, DeviceMessage, JsonSerdeCodec, _, _>(
+        &format!("/{}/ws/{}", timer_id, device_id),
+        UseWebSocketOptions::default()
+            .reconnect_limit(leptos_use::ReconnectLimit::Limited(100))
+            .on_message_raw(|m| {
+                info!("On Raw Message {:?}", m);
+            })
+            .on_error(|e| {
+                info!("On Error {:?}", e);
+            }),
+    );
     Effect::new(move |_| {
-        let message = message.get();
+        let message = socket.message.get();
         if let Some(dm) = message {
             match dm {
                 DeviceMessage::NewState(timer_comp_state) => {
@@ -384,7 +376,8 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
     });
 
     view! {
-            {move || {
+        {{
+            move || {
                 match settable_state.get() {
                     TimerCompState::Loading => "Loading...".into_any(),
                     TimerCompState::Error(x) => format!("Error: {x}").into_any(),
@@ -405,7 +398,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
                     TimerCompState::Running { state, subscribed } => {
                         let next_display_string = state.next.make_display_string();
                         let cur_display_string = state.cur.make_display_string();
-                        let timer_name=timer_name.clone();
+                        let timer_name = timer_name.clone();
 
                         view! {
                             <div class="level">
@@ -437,40 +430,49 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
                                 />
                                 "Notifications"
                             </p>
-                            <SettingsButton timer_id=timer_id timer_name=timer_name />
                             {match state.clock {
                                 ClockState::Paused { .. } => {
                                     view! {
-                                        <button on:click=move |_| spawn_local(async move {
-                                            match resume_tournament(device_id, timer_id).await {
-                                                Ok(_) => {}
-                                                Err(e) => {
-                                                    settable_state.set(TimerCompState::Error(e.to_string()))
-                                                }
-                                            }
-                                        })>Resume</button>
+                                        <button on:click={
+                                            let send = socket.send.clone();
+                                            move |_| send(&Command::Resume)
+                                        }>Resume</button>
                                     }
                                         .into_any()
                                 }
                                 ClockState::Running { .. } => {
                                     view! {
-                                        <button on:click=move |_| spawn_local(async move {
-                                            match pause_tournament(device_id, timer_id).await {
-                                                Ok(_) => {}
-                                                Err(e) => {
-                                                    settable_state.set(TimerCompState::Error(e.to_string()))
-                                                }
-                                            }
-                                        })>Pause</button>
+                                        <button on:click={
+                                            let send = socket.send.clone();
+                                            move |_| send(&Command::Pause)
+                                        }>Pause</button>
                                     }
                                         .into_any()
                                 }
                             }}
+                            <SettingsButton timer_id=timer_id timer_name=timer_name />
+                            <p>
+                                <button on:click={
+                                    let send = socket.send.clone();
+                                    move |_| send(&Command::PrevLevel)
+                                }>"Previous Level"</button>
+                                <button on:click={
+                                    let send = socket.send.clone();
+                                    move |_| send(&Command::NextLevel)
+                                }>"Next Level"</button>
+                            </p>
+                            <p>
+                                <button on:click={
+                                    let send = socket.send.clone();
+                                    move |_| send(&Command::Terminate)
+                                }>"TERMINATE"</button>
+                            </p>
                         }
                             .into_any()
                     }
                 }
-            }}
+            }
+        }}
     }
 }
 
@@ -482,9 +484,7 @@ fn SettingsButton(timer_id: Uuid, timer_name: String) -> impl IntoView {
     view! {
         <button on:click=move |_| {
             nav(&url, NavigateOptions::default());
-        }>
-            "Settings"
-        </button>
+        }>"Settings"</button>
     }
 }
 
@@ -623,8 +623,6 @@ fn InputOptionalDuration(
     }
 }
 
-// TODO - forward level
-// TODO - back level
 // TODO - change level time
 
 #[component]
@@ -698,16 +696,6 @@ fn SettingsPage() -> impl IntoView {
             }
         }}
     }
-}
-
-#[server]
-async fn resume_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
-    crate::backend::resume_tournament(device_id, timer_id).await
-}
-
-#[server]
-async fn pause_tournament(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
-    crate::backend::pause_tournament(device_id, timer_id).await
 }
 
 #[server]
