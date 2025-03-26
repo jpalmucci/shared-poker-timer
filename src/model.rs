@@ -6,12 +6,27 @@ type DateTime = chrono::DateTime<chrono::Local>;
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
-#[derive(Copy, Clone, PartialEq, serde::Deserialize, serde::Serialize, Debug)]
+#[derive(Clone, PartialEq, serde::Deserialize, serde::Serialize, Debug)]
 pub enum Level {
     Blinds {
+        game: String,
         small: u32,
         big: u32,
         ante: u32,
+        duration: chrono::Duration,
+    },
+    Limit {
+        game: String,
+        small: u32,
+        big: u32,
+        duration: chrono::Duration,
+    },
+    Stud {
+        game: String,
+        ante: u32,
+        bring_in: u32,
+        small: u32,
+        big: u32,
         duration: chrono::Duration,
     },
     Break {
@@ -24,27 +39,37 @@ impl Level {
     pub fn duration(&self) -> chrono::Duration {
         match self {
             Self::Blinds { duration, .. } => duration.clone(),
+            Self::Limit { duration, .. } => duration.clone(),
+            Self::Stud { duration, .. } => duration.clone(),
             Self::Break { duration, .. } => duration.clone(),
-            Self::Done => Duration::weeks(2),
+            Self::Done => Duration::seconds(0),
         }
     }
-    pub fn is_pauseable(&self) -> bool {
+    pub fn game(&self) -> &str {
         match self {
-            Level::Blinds { .. } => true,
-            Level::Break { .. } => true,
-            Level::Done => false,
+            Self::Blinds { game, .. } => game,
+            Self::Limit { game, .. } => game,
+            Self::Stud { game, .. } => game,
+            Self::Break { .. } => "BREAK",
+            Self::Done => "FINISHED",
         }
     }
+
     pub fn make_display_string(&self) -> String {
         match self {
             Level::Blinds {
-                small,
-                big,
-                ante,
-                duration: _,
-            } => format!["{small} - {big} - {ante}"],
+                small, big, ante, ..
+            } => format!["{small} / {big} / {ante}"],
+            Level::Limit { small, big, .. } => format!["{small} / {big}  Big Bet: {}", big * 2],
             Level::Break { duration } => format!["{duration} BREAK"],
             Level::Done => "FINISHED".to_string(),
+            Level::Stud {
+                ante,
+                bring_in,
+                small,
+                big,
+                ..
+            } => format!("Ante: {ante} Bring: {bring_in} Small: {small} Big: {big}"),
         }
     }
 }
@@ -57,7 +82,10 @@ pub enum ClockState {
 
 impl fmt::Display for ClockState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let r = self.remaining();
+        let mut r = self.remaining();
+        if r < Duration::zero() {
+            r = Duration::zero();
+        }
         let minutes = r.num_seconds() / 60;
         let seconds = r.num_seconds() % 60;
         write!(f, "{:02}:{:02}", minutes, seconds)?;
@@ -175,6 +203,7 @@ pub enum TimerCompState {
 pub enum TournamentMessage {
     SubscriptionChange(Uuid),
     Hello(RoundState),
+    Goodbye,
     Pause(RoundState),
     Resume(RoundState),
     LevelUp(RoundState),

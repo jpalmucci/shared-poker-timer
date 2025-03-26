@@ -93,7 +93,310 @@ pub async fn main() {
     }
 }
 
-pub static STRUCTURE: Lazy<Arc<Structure>> = Lazy::new(|| Arc::new(Structure::new()));
+pub static STRUCTURE: Lazy<HashMap<String, Arc<Structure>>> = Lazy::new(|| {
+    let mut map = HashMap::new();
+    map.insert(
+        "XNPG Nightly TOC".to_string(),
+        Arc::new(Structure {
+            levels: vec![
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 200,
+                    big: 400,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 200,
+                    big: 500,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Stud {
+                    game: "Stud Hi/Lo".to_string(),
+                    ante: 100,
+                    bring_in: 200,
+                    small: 600,
+                    big: 1200,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 400,
+                    big: 800,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 500,
+                    big: 1000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Stud {
+                    game: "Stud Hi/Lo".to_string(),
+                    ante: 300,
+                    bring_in: 400,
+                    small: 1200,
+                    big: 2400,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Break {
+                    duration: chrono::Duration::minutes(10),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 500,
+                    big: 1000,
+                    ante: 1000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 600,
+                    big: 1200,
+                    ante: 1200,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 1000,
+                    big: 1500,
+                    ante: 1500,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 1000,
+                    big: 2000,
+                    ante: 2000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 1500,
+                    big: 2500,
+                    ante: 2500,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 1500,
+                    big: 3000,
+                    ante: 3000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 2000,
+                    big: 4000,
+                    ante: 4000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 2500,
+                    big: 5000,
+                    ante: 5000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 3000,
+                    big: 6000,
+                    ante: 6000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 4000,
+                    big: 8000,
+                    ante: 8000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 5000,
+                    big: 10000,
+                    ante: 10000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 6000,
+                    big: 12000,
+                    ante: 12000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 8000,
+                    big: 16000,
+                    ante: 16000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 10000,
+                    big: 20000,
+                    ante: 20000,
+                    duration: chrono::Duration::minutes(20),
+                },
+            ],
+        }),
+    );
+
+    map.insert(
+        "XNPG Nightly NLHE".to_string(),
+        Arc::new(Structure {
+            levels: vec![
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 100,
+                    big: 200,
+                    ante: 200,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 200,
+                    big: 300,
+                    ante: 300,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 200,
+                    big: 400,
+                    ante: 400,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 300,
+                    big: 500,
+                    ante: 500,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 300,
+                    big: 600,
+                    ante: 600,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Break {
+                    duration: chrono::Duration::minutes(10),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 400,
+                    big: 800,
+                    ante: 800,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 500,
+                    big: 1000,
+                    ante: 1000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 600,
+                    big: 1200,
+                    ante: 1200,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 1000,
+                    big: 1500,
+                    ante: 1500,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 1000,
+                    big: 2000,
+                    ante: 2000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 1500,
+                    big: 2500,
+                    ante: 2500,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 1500,
+                    big: 3000,
+                    ante: 3000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 2000,
+                    big: 4000,
+                    ante: 4000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 2500,
+                    big: 5000,
+                    ante: 5000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 3000,
+                    big: 6000,
+                    ante: 6000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 4000,
+                    big: 8000,
+                    ante: 8000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 5000,
+                    big: 10000,
+                    ante: 10000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 6000,
+                    big: 12000,
+                    ante: 12000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 10000,
+                    big: 15000,
+                    ante: 15000,
+                    duration: chrono::Duration::minutes(20),
+                },
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 10000,
+                    big: 20000,
+                    ante: 20000,
+                    duration: chrono::Duration::minutes(20),
+                },
+            ],
+        }),
+    );
+
+    map
+});
 
 pub static TIMERS: Lazy<DashMap<Uuid, Timer>> = Lazy::new(|| DashMap::new());
 
@@ -158,6 +461,8 @@ impl Timer {
                             },
                             // this doesnt result in a notification
                             TournamentMessage::SubscriptionChange(_) => continue,
+                            // this doesnt result in a notification
+                            TournamentMessage::Goodbye => continue,
                         });
                         let subscriptions = match TIMERS.get(&timer_id) {
                             Some(tournament) => tournament.subscriptions.clone(),
@@ -182,9 +487,9 @@ impl Timer {
         });
         new_timer
     }
-    fn make_tournament(&mut self) {
+    fn make_tournament(&mut self, structure: &Arc<Structure>) {
         if self.tournament.is_none() {
-            let tournament = Tournament::new(self);
+            let tournament = Tournament::new(self, structure);
             let message = TournamentMessage::Hello(tournament.to_roundstate());
             self.tournament = Some(tournament);
             (&*self).broadcast(None, message);
@@ -202,11 +507,26 @@ impl Timer {
             }
         }
     }
-    fn level_up(&mut self) {
-        if let Some(ref mut tournament) = &mut self.tournament {
-            tournament.level_up();
-            let message = TournamentMessage::LevelUp(tournament.to_roundstate());
+    /// return true if the level is done
+    fn level_up(&mut self) -> bool {
+        if self.tournament.is_none() {
+            return true;
+        }
+        let done = match self.tournament {
+            Some(ref mut t) => t.level_up(),
+            None => {
+                return true;
+            }
+        };
+        if done {
+            self.tournament = None;
+            (&*self).broadcast(None, TournamentMessage::Goodbye);
+            true
+        } else {
+            let message =
+                TournamentMessage::LevelUp(self.tournament.as_ref().unwrap().to_roundstate());
             (&*self).broadcast(None, message);
+            false
         }
     }
 
@@ -255,16 +575,15 @@ pub struct Tournament {
 }
 
 impl Tournament {
-    pub fn new(timer: &Timer) -> Tournament {
-        let str = STRUCTURE.clone();
+    pub fn new(timer: &Timer, structure: &Arc<Structure>) -> Tournament {
         let mut rx = timer.event_sender.new_receiver();
         let timer_id = timer.timer_id;
         let tournament = Tournament {
             timer_id: timer.timer_id,
-            structure: STRUCTURE.clone(),
+            structure: structure.clone(),
             level: 1,
             clock_state: ClockState::Paused {
-                remaining: str.get_level(1).duration(),
+                remaining: structure.get_level(1).duration(),
             },
             duration_override: None,
         };
@@ -313,11 +632,10 @@ impl Tournament {
                                     ..
                                 } => {
                                     if tournament.clock_state.remaining().num_seconds() < 2 {
-                                        if *tournament.cur_level() == Level::Done {
-                                            // we are done and the grace period has expired. Delete the tournament
+                                        let done = timer.level_up();
+                                        if done {
                                             break;
                                         }
-                                        timer.level_up();
                                     }
                                 }
                                 _ => {
@@ -330,53 +648,41 @@ impl Tournament {
                 }
             }
             info!("Deleting tournament {timer_id}");
-            TIMERS.remove(&timer_id);
+            // FIXME - where should we delete these (or just let them sit?)
+            // TIMERS.remove(&timer_id);
         });
 
         return tournament;
     }
 
-    fn cur_level<'a>(&'a self) -> &'a Level {
-        &self.structure.get_level(self.level)
-    }
-
-    fn level_up(&mut self) {
-        let cur = self.cur_level();
-        if *cur == Level::Done {
-            // nothing to do here. Already done
-            return;
-        }
+    // return true if the tournament is complete
+    fn level_up(&mut self) -> bool {
         self.level += 1;
-        let cur = &self.structure.get_level(self.level);
-        if let Level::Done = cur {
-            // if we are done, have the url hang around for 15 minutes and then die
-            self.clock_state = ClockState::Running {
-                // TODO fixme
-                remaining: Duration::seconds(1),
-                asof: chrono::Local::now(),
-            };
-        } else {
-            let duration = match self.duration_override {
-                Some(duration) => duration,
-                None => cur.duration(),
-            };
-            self.clock_state = ClockState::Running {
-                remaining: duration,
-                asof: chrono::Local::now(),
-            };
+        let level = self.structure.get_level(self.level);
+        if level == &Level::Done {
+            return true;
         }
+        let duration = match self.duration_override {
+            Some(duration) => duration,
+            None => level.duration(),
+        };
+        self.clock_state = ClockState::Running {
+            remaining: duration,
+            asof: chrono::Local::now(),
+        };
+        false
     }
 
     fn update_settings(&mut self, duration_override: Option<Duration>) {
         // if the round duration is changing, update the clock_state
-        let cur = &self.structure.get_level(self.level);
+        let level = self.structure.get_level(self.level);
         let current_duration = match self.duration_override {
             Some(d) => d,
-            None => cur.duration(),
+            None => level.duration(),
         };
         let new_duration = match duration_override {
             Some(d) => d,
-            None => cur.duration(),
+            None => level.duration(),
         };
         let offset = new_duration - current_duration;
         match self.clock_state {
@@ -436,157 +742,37 @@ pub struct Structure {
 impl Structure {
     pub fn get_level<'a>(&'a self, l: usize) -> &'a Level {
         if l >= self.levels.len() {
-            return &Level::Done;
-        }
-        return &self.levels[l - 1];
-    }
-    pub fn new() -> Self {
-        Self {
-            levels: vec![
-                Level::Blinds {
-                    small: 100,
-                    big: 200,
-                    ante: 200,
-                    duration: chrono::Duration::seconds(20),
-                },
-                Level::Blinds {
-                    small: 200,
-                    big: 300,
-                    ante: 300,
-                    duration: chrono::Duration::seconds(20),
-                },
-                Level::Done,
-                Level::Blinds {
-                    small: 200,
-                    big: 400,
-                    ante: 400,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 300,
-                    big: 500,
-                    ante: 500,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 300,
-                    big: 600,
-                    ante: 600,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Break {
-                    duration: chrono::Duration::minutes(10),
-                },
-                Level::Blinds {
-                    small: 400,
-                    big: 800,
-                    ante: 800,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 500,
-                    big: 1000,
-                    ante: 1000,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 600,
-                    big: 1200,
-                    ante: 1200,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 1000,
-                    big: 1500,
-                    ante: 1500,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 1000,
-                    big: 2000,
-                    ante: 2000,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 1500,
-                    big: 2500,
-                    ante: 2500,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 1500,
-                    big: 3000,
-                    ante: 3000,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 2000,
-                    big: 4000,
-                    ante: 4000,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 2500,
-                    big: 5000,
-                    ante: 5000,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 3000,
-                    big: 6000,
-                    ante: 6000,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 4000,
-                    big: 8000,
-                    ante: 8000,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 5000,
-                    big: 10000,
-                    ante: 10000,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 6000,
-                    big: 12000,
-                    ante: 12000,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 10000,
-                    big: 15000,
-                    ante: 15000,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Blinds {
-                    small: 10000,
-                    big: 20000,
-                    ante: 20000,
-                    duration: chrono::Duration::minutes(20),
-                },
-                Level::Done,
-            ],
+            &Level::Done
+        } else {
+            &self.levels[l - 1]
         }
     }
 }
 
 pub async fn create_tournament(timer_id: Uuid) -> Result<(), ServerFnError> {
+    // make the timer if it does not exist yet
     if let Some(timer) = TIMERS.get(&timer_id) {
         if timer.tournament.is_some() {
             return Ok(());
         }
     } else {
+        // FIXME - race condition?
         TIMERS.insert(timer_id, Timer::new(timer_id));
     }
 
     // if we are here, we have a timer with tournament = None
     if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
         info!("Creating tournament {timer_id}");
-        timer.make_tournament();
-        return Ok(());
+        let structure = STRUCTURE.get("XNPG Nightly TOC");
+        match structure {
+            Some(structure) => {
+                timer.make_tournament(structure);
+                return Ok(());
+            }
+            None => {
+                return Err(ServerFnError::new("Structure not found"));
+            }
+        }
     } else {
         return Err(ServerFnError::new(
             "Someone deleted the timer as we were creating the tournament",
@@ -840,10 +1026,7 @@ pub async fn unsubscribe(
     }
 }
 
-
-pub async fn manifest(
-    Path((timer_id,timer_name)): Path<(Uuid,String)>,
-) -> impl IntoResponse {
+pub async fn manifest(Path((timer_id, timer_name)): Path<(Uuid, String)>) -> impl IntoResponse {
     let body = json! {
         {
             "name": format!("{timer_name} Poker Timer"),

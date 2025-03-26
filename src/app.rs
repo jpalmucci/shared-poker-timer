@@ -121,7 +121,7 @@ fn required(s: &str) -> Option<String> {
 fn CloseButton(href: Option<String>) -> impl IntoView {
     let nav = use_navigate();
     view! {
-        <div style:color="#FFFFFF" style:background_color="#000000" style:float="right">
+        <div style:color="#FFFFFF" class="close-button">
             <a on:click=move |_evt| {
                 match &href {
                     Some(href) => nav(&href, NavigateOptions::default()),
@@ -276,22 +276,17 @@ fn TimerPage() -> impl IntoView {
         {|| {
             match extract_params() {
                 Ok((timer_id, timer_name, device_id)) => {
-                    let encoded_name = urlencoding::encode(&timer_name).into_owned();
                     view! {
-                        <Link rel="manifest" href=format!("/{timer_id}/{timer_name}/manifest.json") />
+                        <Link
+                            rel="manifest"
+                            href=format!("/{timer_id}/{timer_name}/manifest.json")
+                        />
                         <Title text=format!("{timer_name} Poker Timer") />
                         <TimerComp timer_id=timer_id timer_name=timer_name device_id=device_id />
-                        <p>
-                            <img src=format!("/{timer_id}/qr/{encoded_name}") />
-                        </p>
                     }
                         .into_any()
                 }
-                Err(e) => {
-
-                    view! { <p>Error: {e}</p> }
-                        .into_any()
-                }
+                Err(e) => view! { <p>Error: {e}</p> }.into_any(),
             }
         }}
     }
@@ -311,36 +306,42 @@ fn maybe_add_timer(timer_id: Uuid, timer_name: &str) {
                                 name: timer_name.to_string(),
                             });
 
-                            storage.set_item(
-                                "timers",
-                                &serde_json::to_string::<Vec<TimerRef>>(&timers)
-                                    .expect("Couldn't serialize"),
-                            );
+                            storage
+                                .set_item(
+                                    "timers",
+                                    &serde_json::to_string::<Vec<TimerRef>>(&timers)
+                                        .expect("Couldn't serialize"),
+                                )
+                                .expect("Couldn't store timers");
                         }
                     }
                     _ => {
                         // couldn't parse the storage, replace it
-                        storage.set_item(
-                            "timers",
-                            &serde_json::to_string::<Vec<TimerRef>>(&vec![TimerRef {
-                                id: timer_id,
-                                name: timer_name.to_string(),
-                            }])
-                            .expect("Couldn't Serialize"),
-                        );
+                        storage
+                            .set_item(
+                                "timers",
+                                &serde_json::to_string::<Vec<TimerRef>>(&vec![TimerRef {
+                                    id: timer_id,
+                                    name: timer_name.to_string(),
+                                }])
+                                .expect("Couldn't Serialize"),
+                            )
+                            .expect("Couldn't store timers");
                     }
                 }
             }
             _ => {
                 // no string exists yet
-                storage.set_item(
-                    "timers",
-                    &serde_json::to_string::<Vec<TimerRef>>(&vec![TimerRef {
-                        id: timer_id,
-                        name: timer_name.to_string(),
-                    }])
-                    .expect("Couldn't Serialize"),
-                );
+                storage
+                    .set_item(
+                        "timers",
+                        &serde_json::to_string::<Vec<TimerRef>>(&vec![TimerRef {
+                            id: timer_id,
+                            name: timer_name.to_string(),
+                        }])
+                        .expect("Couldn't Serialize"),
+                    )
+                    .expect("Couldn't store timers");
             }
         };
     };
@@ -354,32 +355,8 @@ fn maybe_add_timer(_timer_id: Uuid, _timer_name: &str) {
 #[component]
 fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoView {
     maybe_add_timer(timer_id, &timer_name);
-    let initial_state = Resource::new(
-        || extract_params(),
-        move |params| async move {
-            if let Ok((timer_id, _timer_name, device_id)) = params {
-                current_state(device_id, timer_id).await
-            } else {
-                current_state(Uuid::max(), timer_id).await
-            }
-        },
-    );
+    let encoded_name = urlencoding::encode(&timer_name).into_owned();
     let settable_state = RwSignal::new(TimerCompState::Loading);
-    let my_state = move || {
-        if initial_state.get() == None {
-            TimerCompState::Loading
-        } else if settable_state.get() != TimerCompState::Loading {
-            settable_state.get()
-        } else if let Some(Err(x)) = initial_state.get() {
-            TimerCompState::Error(x.to_string())
-        } else {
-            if let Some(Ok(x)) = initial_state.get() {
-                x
-            } else {
-                panic!("All cases were exhausted!")
-            }
-        }
-    };
     let UseWebSocketReturn { message, .. } =
         use_websocket_with_options::<DeviceMessage, DeviceMessage, JsonSerdeCodec, _, _>(
             &format!("/{}/ws/{}", timer_id, device_id),
@@ -393,12 +370,11 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
                 }),
         );
     Effect::new(move |_| {
-        let state = my_state();
         let message = message.get();
         if let Some(dm) = message {
             match dm {
                 DeviceMessage::NewState(timer_comp_state) => {
-                    if timer_comp_state != state {
+                    if timer_comp_state != settable_state.get_untracked() {
                         settable_state.set(timer_comp_state);
                     }
                 }
@@ -408,44 +384,45 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
     });
 
     view! {
-        <Suspense fallback=|| {
-            "Loading..."
-        }>
-
             {move || {
-                match my_state() {
+                match settable_state.get() {
                     TimerCompState::Loading => "Loading...".into_any(),
                     TimerCompState::Error(x) => format!("Error: {x}").into_any(),
                     TimerCompState::NoTournament => {
                         view! {
-                            <div>"No tournament running"</div>
-                            <button on:click=move |_| {
-                                spawn_local(async move {
-                                    create_tournament(timer_id).await.unwrap();
-                                });
-                            }>Start</button>
+                            <p>
+                                <div>"No tournament running"</div>
+                                <button on:click=move |_| {
+                                    spawn_local(async move {
+                                        create_tournament(timer_id).await.unwrap();
+                                    });
+                                }>Start</button>
+                            </p>
+                            <img src=format!("/{timer_id}/qr/{encoded_name}") />
                         }
                             .into_any()
                     }
-                    TimerCompState::Running { state, .. } => {
+                    TimerCompState::Running { state, subscribed } => {
                         let next_display_string = state.next.make_display_string();
                         let cur_display_string = state.cur.make_display_string();
+                        let timer_name=timer_name.clone();
 
                         view! {
-                            <div class="level">"Level " {state.level}</div>
-                            <div class="cur_level">{cur_display_string}</div>
-                            <Clock state=state.clock />
-                            <div>"Next Level: " {next_display_string}</div>
-                        }
-                            .into_any()
-                    }
-                }
-            }}
-            {move || {
-                if let TimerCompState::Running { subscribed, .. } = my_state() {
-                    Some(
-                        view! {
-                            <div>
+                            <div class="level">
+                                "Level " {state.level} ": " {state.cur.game().to_string()}
+                            </div>
+                            <div class="cur-level">{cur_display_string}</div>
+                            <div class="clock">
+                                <Clock state=state.clock />
+                            </div>
+                            <div class="next-level">
+                                "Next Level: " {state.cur.game().to_string()} " "
+                                {next_display_string}
+                            </div>
+                            <p style:text-align="center">
+                                <img src=format!("/{timer_id}/qr/{encoded_name}") />
+                            </p>
+                            <p>
                                 <input
                                     type="checkbox"
                                     checked=subscribed
@@ -459,64 +436,55 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
                                     })
                                 />
                                 "Notifications"
-                            </div>
-                        },
-                    )
-                } else {
-                    None
+                            </p>
+                            <SettingsButton timer_id=timer_id timer_name=timer_name />
+                            {match state.clock {
+                                ClockState::Paused { .. } => {
+                                    view! {
+                                        <button on:click=move |_| spawn_local(async move {
+                                            match resume_tournament(device_id, timer_id).await {
+                                                Ok(_) => {}
+                                                Err(e) => {
+                                                    settable_state.set(TimerCompState::Error(e.to_string()))
+                                                }
+                                            }
+                                        })>Resume</button>
+                                    }
+                                        .into_any()
+                                }
+                                ClockState::Running { .. } => {
+                                    view! {
+                                        <button on:click=move |_| spawn_local(async move {
+                                            match pause_tournament(device_id, timer_id).await {
+                                                Ok(_) => {}
+                                                Err(e) => {
+                                                    settable_state.set(TimerCompState::Error(e.to_string()))
+                                                }
+                                            }
+                                        })>Pause</button>
+                                    }
+                                        .into_any()
+                                }
+                            }}
+                        }
+                            .into_any()
+                    }
                 }
             }}
-            {move || {
-                if let TimerCompState::Running { state, .. } = my_state() {
-                    match state.clock {
-                        ClockState::Paused { .. } => {
-                            Some(
-                                view! {
-                                    <button on:click=move |_| spawn_local(async move {
-                                        match resume_tournament(device_id, timer_id).await {
-                                            Ok(_) => {}
-                                            Err(e) => {
-                                                settable_state.set(TimerCompState::Error(e.to_string()))
-                                            }
-                                        }
-                                    })>"Resume"</button>
-                                }
-                                    .into_any(),
-                            )
-                        }
-                        ClockState::Running { .. } => {
-                            Some(
-                                view! {
-                                    <button on:click=move |_| spawn_local(async move {
-                                        match pause_tournament(device_id, timer_id).await {
-                                            Ok(_) => {}
-                                            Err(e) => {
-                                                settable_state.set(TimerCompState::Error(e.to_string()))
-                                            }
-                                        }
-                                    })>"Pause"</button>
-                                }
-                                    .into_any(),
-                            )
-                        }
-                    }
-                } else {
-                    None
-                }
-            }} <SettingsButton timer_id=timer_id timer_name=timer_name />
-        </Suspense>
     }
 }
 
 #[component]
 fn SettingsButton(timer_id: Uuid, timer_name: String) -> impl IntoView {
+    let encoded_name = urlencoding::encode(&timer_name);
+    let url = format!("/{}/settings/{}", timer_id, encoded_name);
     let nav = use_navigate();
     view! {
         <button on:click=move |_| {
-            let encoded_name = urlencoding::encode(&timer_name);
-            let url = format!("/{timer_id}/settings/{encoded_name}");
             nav(&url, NavigateOptions::default());
-        }>"Settings"</button>
+        }>
+            "Settings"
+        </button>
     }
 }
 
@@ -698,12 +666,7 @@ fn SettingsPage() -> impl IntoView {
                                     let encoded_name = urlencoding::encode(&timer_name)
                                         .into_owned();
                                     spawn_local(async move {
-                                        if let Err(e) = set_tournament_settings(
-                                                timer_id,
-                                                v
-                                            )
-                                            .await
-                                        {
+                                        if let Err(e) = set_tournament_settings(timer_id, v).await {
                                             duration_override_signal.set(Err(e.to_string()));
                                         } else {
                                             let nav = use_navigate();
