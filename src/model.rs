@@ -224,5 +224,6 @@ pub enum Command {
     Resume,
     NextLevel,
     PrevLevel,
+    // TODO: move to the settings window
     Terminate,
 }

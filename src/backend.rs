@@ -522,6 +522,8 @@ impl Timer {
             LevelUpResult::Invalid => false,
             LevelUpResult::Done => {
                 self.tournament = None;
+                // subscriptions (for pwa notification) expire when the tournament ends
+                self.subscriptions.clear();
                 (&*self).broadcast(None, TournamentMessage::Goodbye);
                 true
             }
@@ -536,6 +538,8 @@ impl Timer {
 
     fn terminate(&mut self) {
         self.tournament = None;
+        // subscriptions (for pwa notification) expire when the tournament ends
+        self.subscriptions.clear();
         (&*self).broadcast(None, TournamentMessage::Goodbye);
     }
 
@@ -1020,7 +1024,7 @@ pub async fn subscribe(
             let device_id = payload.device_id;
             t.subscriptions.remove(&device_id);
             t.subscriptions.insert(device_id, payload);
-            info!("There are {} subscriptions", t.subscriptions.len());
+            info!("Device {} is subscribed.", device_id);
             (&*t).broadcast(None, TournamentMessage::SubscriptionChange(device_id));
             return (StatusCode::OK, "ok".to_string());
         }
@@ -1038,7 +1042,7 @@ pub async fn unsubscribe(
         }
         Some(mut t) => {
             t.subscriptions.remove(&device_id);
-            info!("There are {} subscriptions", t.subscriptions.len());
+            info!("Device {} is unsubscribed.", device_id);
             (&*t).broadcast(None, TournamentMessage::SubscriptionChange(device_id));
             Ok("ok".to_string())
         }

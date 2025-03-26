@@ -151,7 +151,7 @@ fn HomePage() -> impl IntoView {
     };
 
     let link_signal = RwSignal::<Result<String, String>>::new(Err("Required".to_string()));
-    let re = regex!(r#"^https://pokertimer.palmucci.net/timer/([^/]+)/(.*)$"#);
+    let re = regex!(r#"^https://pokertimer.palmucci.net/([^/]+)/timer/(.*)$"#);
 
     let validate_link = |s: &str| -> Option<String> {
         if s.len() == 0 {
@@ -233,7 +233,6 @@ fn HomePage() -> impl IntoView {
 
 use leptos::Params;
 use leptos_router::params::Params;
-use web_sys::HtmlInputElement;
 
 #[derive(Params, PartialEq, Clone, Debug)]
 struct TimerPageParams {
@@ -241,22 +240,14 @@ struct TimerPageParams {
     timer_name: Option<String>,
 }
 
-fn extract_params() -> Result<(Uuid, String, Uuid), String> {
+fn extract_params() -> Result<(Uuid, String), String> {
     let params = use_params::<TimerPageParams>();
-    let (device_id, set_device_id, _) = use_local_storage_with_options::<Uuid, JsonSerdeCodec>(
-        "deviceid",
-        UseStorageOptions::default().delay_during_hydration(true),
-    );
-    if device_id.get() == Uuid::default() {
-        set_device_id.set(Uuid::new_v4());
-    }
     match params.get() {
         Ok(TimerPageParams {
             timer_id: Some(timer_id),
             timer_name: Some(timer_name),
         }) => {
-            let device_id = device_id.get();
-            Ok((timer_id, timer_name, device_id))
+            Ok((timer_id, timer_name))
         }
         _ => Err(format!("Bad Request {:?}", params.get())),
     }
@@ -268,14 +259,14 @@ fn TimerPage() -> impl IntoView {
         <CloseButton href=None />
         {|| {
             match extract_params() {
-                Ok((timer_id, timer_name, device_id)) => {
+                Ok((timer_id, timer_name)) => {
                     view! {
                         <Link
                             rel="manifest"
                             href=format!("/{timer_id}/{timer_name}/manifest.json")
                         />
                         <Title text=format!("{timer_name} Poker Timer") />
-                        <TimerComp timer_id=timer_id timer_name=timer_name device_id=device_id />
+                        <TimerComp timer_id=timer_id timer_name=timer_name />
                     }
                         .into_any()
                 }
@@ -345,10 +336,43 @@ fn maybe_add_timer(_timer_id: Uuid, _timer_name: &str) {
     // this does nothing on the server
 }
 
+#[cfg(not(feature = "ssr"))]
+fn get_device_id() -> Uuid {
+    fn set_id(storage: &web_sys::Storage, id: Uuid) -> Uuid
+    {
+        storage.set_item("deviceid", &id.to_string());
+        id
+    }
+    if let Ok(Some(storage)) = window().local_storage() {
+        match storage.get_item("deviceid") {
+            Ok(Some(item)) => {
+                match Uuid::parse_str(&item) {
+                    Ok(id) => id,
+                    Err(_) => {
+                        // value was unparseable, set a new value
+                        set_id(&storage, Uuid::new_v4())
+                    }
+                }
+            },
+            _ => {
+                // id wasn't there, make a new one
+                set_id(&storage, Uuid::new_v4())
+            }
+        }
+    } else {
+        // no local storage, punt
+        Uuid::nil()
+    }
+}
+
+#[cfg(feature = "ssr")]
+fn get_device_id() -> Uuid { Uuid::nil() }
+
 #[component]
-fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoView {
+fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
     maybe_add_timer(timer_id, &timer_name);
     let encoded_name = urlencoding::encode(&timer_name).into_owned();
+    let device_id = get_device_id();
     let settable_state = RwSignal::new(TimerCompState::Loading);
     let socket = use_websocket_with_options::<Command, DeviceMessage, JsonSerdeCodec, _, _>(
         &format!("/{}/ws/{}", timer_id, device_id),
@@ -418,15 +442,15 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
                             <p>
                                 <input
                                     type="checkbox"
-                                    checked=subscribed
-                                    on:change=move |evt| spawn_local(async move {
-                                        let target: HtmlInputElement = event_target(&evt);
-                                        if target.checked() {
+                                    prop:checked=subscribed
+                                    on:input:target=move |evt| {
+                                        evt.prevent_default();
+                                        if evt.target().checked() {
                                             register_service_worker(device_id, timer_id);
                                         } else {
                                             deregister_service_worker(device_id, timer_id);
                                         }
-                                    })
+                                    }
                                 />
                                 "Notifications"
                             </p>
@@ -633,7 +657,7 @@ fn SettingsPage() -> impl IntoView {
     let old_settings: Resource<Result<Option<Duration>, ServerFnError>> = Resource::new(
         || extract_params(),
         |params| async move {
-            if let Ok((timer_id, _, _)) = params {
+            if let Ok((timer_id, _)) = params {
                 tournament_settings(timer_id).await
             } else {
                 Err(ServerFnError::new("tournament_settings failed"))
@@ -649,7 +673,7 @@ fn SettingsPage() -> impl IntoView {
     view! {
         {move || {
             match extract_params() {
-                Ok((timer_id, timer_name, _device_id)) => {
+                Ok((timer_id, timer_name)) => {
                     let error = duration_override_signal.get().is_err();
                     let encoded_name = urlencoding::encode(&timer_name).into_owned();
 
