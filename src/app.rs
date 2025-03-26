@@ -4,7 +4,7 @@ use codee::string::JsonSerdeCodec;
 use lazy_regex::regex;
 use leptos::{logging::error, prelude::*, task::spawn_local};
 use leptos_icons::Icon;
-use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
+use leptos_meta::{provide_meta_context, Link, MetaTags, Stylesheet, Title};
 use leptos_router::{
     components::{Route, Router, Routes},
     hooks::{use_navigate, use_params},
@@ -45,16 +45,13 @@ pub fn App() -> impl IntoView {
         // id=leptos means cargo-leptos will hot-reload this stylesheet
         <Stylesheet id="leptos" href="/pkg/pokertimer.css" />
 
-        // sets the document title
-        <Title text="Welcome to Leptos" />
-
         // content for this welcome page
         <Router>
             <main>
                 <Routes fallback=|| "Page not found.".into_view()>
                     <Route path=StaticSegment("") view=HomePage />
-                    <Route path=path!("/timer/:timer_id/:timer_name") view=TimerPage />
-                    <Route path=path!("/settings/:timer_id/:timer_name") view=SettingsPage />
+                    <Route path=path!("/:timer_id/timer/:timer_name") view=TimerPage />
+                    <Route path=path!("/:timer_id/settings/:timer_name") view=SettingsPage />
                 </Routes>
             </main>
         </Router>
@@ -194,6 +191,8 @@ fn HomePage() -> impl IntoView {
     };
 
     view! {
+        <Link rel="manifest" href="/manifest.json" />
+        <Title text="Shared Poker timer" />
         <h1>"My Timers"</h1>
         <div class="form">
             <For
@@ -205,7 +204,7 @@ fn HomePage() -> impl IntoView {
                             <a
                                 class="links"
                                 href=format!(
-                                    "/timer/{}/{}",
+                                    "/{}/timer/{}",
                                     timer.id,
                                     urlencoding::encode(&timer.name),
                                 )
@@ -279,9 +278,11 @@ fn TimerPage() -> impl IntoView {
                 Ok((timer_id, timer_name, device_id)) => {
                     let encoded_name = urlencoding::encode(&timer_name).into_owned();
                     view! {
+                        <Link rel="manifest" href=format!("/{timer_id}/{timer_name}/manifest.json") />
+                        <Title text=format!("{timer_name} Poker Timer") />
                         <TimerComp timer_id=timer_id timer_name=timer_name device_id=device_id />
                         <p>
-                            <img src=format!("/qr/{timer_id}/{encoded_name}") />
+                            <img src=format!("/{timer_id}/qr/{encoded_name}") />
                         </p>
                     }
                         .into_any()
@@ -381,7 +382,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
     };
     let UseWebSocketReturn { message, .. } =
         use_websocket_with_options::<DeviceMessage, DeviceMessage, JsonSerdeCodec, _, _>(
-            &format!("/ws/{}/{}", timer_id, device_id),
+            &format!("/{}/ws/{}", timer_id, device_id),
             UseWebSocketOptions::default()
                 .reconnect_limit(leptos_use::ReconnectLimit::Limited(100))
                 .on_message_raw(|m| {
@@ -401,7 +402,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String, device_id: Uuid) -> impl IntoVi
                         settable_state.set(timer_comp_state);
                     }
                 }
-                DeviceMessage::Beep => todo!(),
+                DeviceMessage::Beep => beep(),
             };
         }
     });
@@ -513,7 +514,7 @@ fn SettingsButton(timer_id: Uuid, timer_name: String) -> impl IntoView {
     view! {
         <button on:click=move |_| {
             let encoded_name = urlencoding::encode(&timer_name);
-            let url = format!("/settings/{timer_id}/{encoded_name}");
+            let url = format!("/{timer_id}/settings/{encoded_name}");
             nav(&url, NavigateOptions::default());
         }>"Settings"</button>
     }
@@ -562,7 +563,7 @@ fn register_service_worker(device_id: Uuid, timer_id: Uuid) {
                     applicationServerKey: 'BM7EadIlCgfqJABkpI9L0OsbkyZfL1BnEzjBlYpPAoZt-kDpByG3waoERsCLofkeqRsFBRfbgdJ7ccbSb_oxBf8'
                 }});
              }}).then(subscription => {{
-                fetch('/subscribe/{timer_id}', {{
+                fetch('/{timer_id}/subscribe', {{
                     method: 'POST',
                     body: JSON.stringify({{'device_id': '{device_id}', ...subscription.toJSON() }}),
                     headers: {{ 'Content-Type': 'application/json' }}
@@ -584,7 +585,7 @@ fn deregister_service_worker(device_id: Uuid, timer_id: Uuid) {
         "if ('serviceWorker' in navigator) {{
             navigator.serviceWorker.getRegistration().then((reg) =>
             reg.pushManager.getSubscription().then((subscription) => {{
-                fetch('/unsubscribe/{timer_id}', {{
+                fetch('/{timer_id}/unsubscribe', {{
                     method: 'POST',
                     body: JSON.stringify({{'device_id': '{device_id}', ...subscription.toJSON() }}),
                     headers: {{ 'Content-Type': 'application/json' }},
@@ -687,7 +688,7 @@ fn SettingsPage() -> impl IntoView {
                     let encoded_name = urlencoding::encode(&timer_name).into_owned();
 
                     view! {
-                        <CloseButton href=Some(format!("/timer/{timer_id}/{encoded_name}")) />
+                        <CloseButton href=Some(format!("/{timer_id}/timer/{encoded_name}")) />
                         <h1>"Settings"</h1>
                         <form
                             class="form"
@@ -707,7 +708,7 @@ fn SettingsPage() -> impl IntoView {
                                         } else {
                                             let nav = use_navigate();
                                             nav(
-                                                &format!("/timer/{timer_id}/{encoded_name}"),
+                                                &format!("/{timer_id}/timer/{encoded_name}"),
                                                 NavigateOptions::default(),
                                             );
                                         }

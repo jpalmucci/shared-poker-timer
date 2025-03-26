@@ -10,6 +10,7 @@ use axum::http::header;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::post;
+use axum::Json;
 use chrono::Duration;
 use codee::string::JsonSerdeWasmCodec;
 use codee::Encoder;
@@ -21,6 +22,7 @@ use once_cell::sync::Lazy;
 use qrcode::QrCode;
 use serde::Deserialize;
 use serde::Serialize;
+use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
@@ -57,10 +59,11 @@ pub async fn main() {
             let leptos_options = leptos_options.clone();
             move || shell(leptos_options.clone())
         })
-        .route("/qr/:timer_id/:timer_name", get(qr_code))
-        .route("/ws/:timer_id/:device_id", any(websocket_handler))
-        .route("/subscribe/:timer_id", post(subscribe))
-        .route("/unsubscribe/:timer_id", post(unsubscribe))
+        .route("/:timer_id/qr/:timer_name", get(qr_code))
+        .route("/:timer_id/ws/:device_id", any(websocket_handler))
+        .route("/:timer_id/subscribe", post(subscribe))
+        .route("/:timer_id/unsubscribe", post(unsubscribe))
+        .route("/:timer_id/:timer_name/manifest.json", get(manifest))
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
 
@@ -790,7 +793,7 @@ pub async fn send_notification(s: &Subscription, notification: Arc<Notification>
 
 pub async fn qr_code(Path((timer_id, timer_name)): Path<(Uuid, String)>) -> impl IntoResponse {
     let timer_name = urlencoding::encode(&timer_name);
-    let url = format!("https://pokertimer.palmucci.net/timer/{timer_id}/{timer_name}");
+    let url = format!("https://pokertimer.palmucci.net/{timer_id}/timer/{timer_name}");
     let code = QrCode::new(url).unwrap();
     let image = code.render::<Luma<u8>>().module_dimensions(4, 4).build();
     let mut buf = Cursor::new(Vec::new());
@@ -835,4 +838,46 @@ pub async fn unsubscribe(
             Ok("ok".to_string())
         }
     }
+}
+
+
+pub async fn manifest(
+    Path((timer_id,timer_name)): Path<(Uuid,String)>,
+) -> impl IntoResponse {
+    let body = json! {
+        {
+            "name": format!("{timer_name} Poker Timer"),
+            "short_name": format!("{timer_name} Poker Timer"),
+            "description": "A poker tournament timer than can easily shared between players in a game.",
+            "icons": [
+            {
+              "src": "/logo_192.png",
+              "type": "image/png",
+              "sizes": "192x192"
+            },
+            {
+              "src": "/logo_512.png",
+              "type": "image/png",
+              "sizes": "512x512",
+              "purpose": "any"
+            },
+            {
+              "src": "/logo_512.png",
+              "type": "image/png",
+              "sizes": "any",
+              "purpose": "any"
+            }
+          ],
+            "display": "standalone",
+            "display_override": ["window-control-overlay", "standalone"],
+            "theme_color": "#000000",
+            "background_color": "#ffffff",
+            "dir": "ltr",
+            "lang": "en",
+            "start_url": format!("/{timer_id}/timer/{timer_name}"),
+            "scope": format!("/{timer_id}/"),
+            "id": format!("/{timer_id}/"),
+          }
+    };
+    Json(body)
 }
