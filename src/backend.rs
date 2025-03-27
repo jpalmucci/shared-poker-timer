@@ -67,7 +67,12 @@ pub async fn main() {
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
 
+
     let app = app.into_make_service();
+    let handle = axum_server::Handle::new();
+    let handle2 = handle.clone();
+    tokio::spawn(async { shutdown_signal(handle2).await });
+
     if addr.port() == 8443 {
         // we want a https server
         let tls_key = fs::read_to_string("certs/tls-key.pem").unwrap();
@@ -77,10 +82,8 @@ pub async fn main() {
             .expect("Couldn't make config");
 
         info!["https server started at {addr}"];
-        let handle = axum_server::Handle::new();
-        let handle2 = handle.clone();
         axum_server::bind_rustls(addr, config)
-            .handle(handle2)
+            .handle(handle)
             .serve(app)
             .await
             .unwrap();
@@ -88,10 +91,39 @@ pub async fn main() {
         // run our app with hyper
         // `axum::Server` is a re-export of `hyper::Server`
         log!("listening on http://{}", &addr);
-        let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-        axum::serve(listener, app).await.unwrap();
+        axum_server::bind(addr)
+            .handle(handle)
+            .serve(app)
+            .await
+            .unwrap();
     }
 }
+
+async fn shutdown_signal(handle: axum_server::Handle) {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    tokio::spawn(async move {
+        info!("Shutting down");
+        info!("Shut down");
+        handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
+    });
+}
+
 
 pub static STRUCTURE: Lazy<HashMap<String, Arc<Structure>>> = Lazy::new(|| {
     let mut map = HashMap::new();
@@ -678,7 +710,7 @@ impl Tournament {
         if self.level as i8 + delta < 0 {
             return LevelUpResult::Invalid;
         }
-        self.level += 1;
+        self.level = (self.level as i8 + delta) as usize;
         let level = self.structure.get_level(self.level);
         if level == &Level::Done {
             return LevelUpResult::Done;
@@ -687,9 +719,9 @@ impl Tournament {
             Some(duration) => duration,
             None => level.duration(),
         };
-        self.clock_state = ClockState::Running {
-            remaining: duration,
-            asof: chrono::Local::now(),
+        self.clock_state = match self.clock_state {
+            ClockState::Paused { .. } => ClockState::Paused { remaining: duration },
+            ClockState::Running { .. } => ClockState::Running { remaining: duration, asof: chrono::Local::now() }
         };
         LevelUpResult::Ok
     }
@@ -901,30 +933,8 @@ async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocket) {
             match x {
                 Some(Ok(Message::Text(msg))) => {
                     match serde_json::from_str::<Command>(&msg) {
-                        Ok(Command::Resume) =>  {
-                            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
-                                timer.resume_tournament(device_id);
-                            }
-                        },
-                        Ok(Command::Pause) =>  {
-                            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
-                                timer.pause_tournament(device_id);
-                            }
-                        },
-                        Ok(Command::PrevLevel) =>  {
-                            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
-                                timer.level_up(-1);
-                            }
-                        },
-                        Ok(Command::NextLevel) =>  {
-                            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
-                                timer.level_up(1);
-                            }
-                        },
-                        Ok(Command::Terminate) =>  {
-                            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
-                                timer.terminate();
-                            }
+                        Ok(cmd) =>  {
+                            execute( &cmd, timer_id, device_id);
                         },
 
                         Err(_) => break
@@ -933,6 +943,36 @@ async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocket) {
                 _ => { break; },
             }
         }
+        }
+    }
+}
+
+pub fn execute( cmd: &Command, timer_id : Uuid, device_id : Uuid ) {
+    match cmd {
+        Command::Resume =>  {
+            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
+                timer.resume_tournament(device_id);
+            }
+        },
+        Command::Pause =>  {
+            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
+                timer.pause_tournament(device_id);
+            }
+        },
+        Command::PrevLevel =>  {
+            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
+                timer.level_up(-1);
+            }
+        },
+        Command::NextLevel =>  {
+            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
+                timer.level_up(1);
+            }
+        },
+        Command::Terminate =>  {
+            if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
+                timer.terminate();
+            }
         }
     }
 }

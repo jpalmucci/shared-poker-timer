@@ -1,4 +1,5 @@
-use crate::model::*;
+
+use crate:: model::*;
 use chrono::Duration;
 use codee::string::JsonSerdeCodec;
 use lazy_regex::regex;
@@ -121,7 +122,7 @@ fn required(s: &str) -> Option<String> {
 fn CloseButton(href: Option<String>) -> impl IntoView {
     let nav = use_navigate();
     view! {
-        <div style:color="#FFFFFF" class="close-button">
+        <div class="close-button">
             <a on:click=move |_evt| {
                 match &href {
                     Some(href) => nav(&href, NavigateOptions::default()),
@@ -151,6 +152,7 @@ fn HomePage() -> impl IntoView {
     };
 
     let link_signal = RwSignal::<Result<String, String>>::new(Err("Required".to_string()));
+    // TODO - make this an environment variable
     let re = regex!(r#"^https://pokertimer.palmucci.net/([^/]+)/timer/(.*)$"#);
 
     let validate_link = |s: &str| -> Option<String> {
@@ -340,7 +342,7 @@ fn maybe_add_timer(_timer_id: Uuid, _timer_name: &str) {
 fn get_device_id() -> Uuid {
     fn set_id(storage: &web_sys::Storage, id: Uuid) -> Uuid
     {
-        storage.set_item("deviceid", &id.to_string());
+        storage.set_item("deviceid", &id.to_string()).expect("Couldn't set device_id");
         id
     }
     if let Ok(Some(storage)) = window().local_storage() {
@@ -407,6 +409,13 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                     TimerCompState::Error(x) => format!("Error: {x}").into_any(),
                     TimerCompState::NoTournament => {
                         view! {
+                            <h1>
+                            {
+                                let timer_name = timer_name.clone();
+                                move || { timer_name.clone() }
+                            } 
+                            </h1>
+
                             <p>
                                 <div>"No tournament running"</div>
                                 <button on:click=move |_| {
@@ -425,6 +434,14 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                         let timer_name = timer_name.clone();
 
                         view! {
+                            <SettingsButton timer_id=timer_id timer_name=timer_name.clone() />
+                            <div class="title">
+                            {
+                                let timer_name = timer_name.clone();
+                                move || { timer_name.clone() }
+                            } 
+                            </div>
+
                             <div class="level">
                                 "Level " {state.level} ": " {state.cur.game().to_string()}
                             </div>
@@ -474,23 +491,6 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                                         .into_any()
                                 }
                             }}
-                            <SettingsButton timer_id=timer_id timer_name=timer_name />
-                            <p>
-                                <button on:click={
-                                    let send = socket.send.clone();
-                                    move |_| send(&Command::PrevLevel)
-                                }>"Previous Level"</button>
-                                <button on:click={
-                                    let send = socket.send.clone();
-                                    move |_| send(&Command::NextLevel)
-                                }>"Next Level"</button>
-                            </p>
-                            <p>
-                                <button on:click={
-                                    let send = socket.send.clone();
-                                    move |_| send(&Command::Terminate)
-                                }>"TERMINATE"</button>
-                            </p>
                         }
                             .into_any()
                     }
@@ -506,9 +506,13 @@ fn SettingsButton(timer_id: Uuid, timer_name: String) -> impl IntoView {
     let url = format!("/{}/settings/{}", timer_id, encoded_name);
     let nav = use_navigate();
     view! {
-        <button on:click=move |_| {
-            nav(&url, NavigateOptions::default());
-        }>"Settings"</button>
+        <div class="settings-button">
+            <a on:click=move |_evt| {
+                nav(&url, NavigateOptions::default());
+            }>
+                <Icon icon=icondata::AiSettingFilled />
+            </a>
+        </div>
     }
 }
 
@@ -669,11 +673,27 @@ fn SettingsPage() -> impl IntoView {
             duration_override_signal.set(Ok(duration_override));
         }
     });
+    let device_id = get_device_id();
+
 
     view! {
         {move || {
             match extract_params() {
                 Ok((timer_id, timer_name)) => {
+                    let execute_command = {
+                        let timer_name = timer_name.clone();
+                        move |cmd| {
+                            let timer_name = timer_name.clone();
+                            spawn_local(async move {
+                                if let Ok(_) = execute_command(cmd, timer_id, device_id).await {
+                                    use_navigate()(
+                                        &format!("/{}/timer/{}", timer_id, timer_name),
+                                        NavigateOptions::default(),
+                                    );
+                                }
+                            });
+                        }
+                    };
                     let error = duration_override_signal.get().is_err();
                     let encoded_name = urlencoding::encode(&timer_name).into_owned();
 
@@ -709,6 +729,34 @@ fn SettingsPage() -> impl IntoView {
                                 "Save"
                             </button>
                         </form>
+                        <p>
+                            <p>
+                                <button on:click={
+                                    let execute_command = execute_command.clone();
+                                    move |_evt| {
+                                        execute_command(Command::PrevLevel);
+                                    }
+                                }>"Previous Level"</button>
+                                <button on:click={
+                                    let execute_command = execute_command.clone();
+                                    move |_evt| {
+                                        execute_command(Command::NextLevel);
+                                    }
+                                }>"Next Level"</button>
+                            </p>
+                        </p>
+                        <p>
+                            <p>
+                                <button
+                                    style:color="red"
+                                    on:click=move |_evt| {
+                                        execute_command(Command::Terminate);
+                                    }
+                                >
+                                    "TERMINATE"
+                                </button>
+                            </p>
+                        </p>
                     }
                         .into_any()
                 }
@@ -734,3 +782,10 @@ async fn set_tournament_settings(
 async fn tournament_settings(timer_id: Uuid) -> Result<Option<Duration>, ServerFnError> {
     return crate::backend::tourament_settings(timer_id);
 }
+
+#[server]
+async fn execute_command( cmd : Command, timer_id: Uuid, device_id : Uuid ) -> Result<(), ServerFnError> {
+    crate::backend::execute( &cmd, timer_id, device_id );
+    Ok(())
+}
+

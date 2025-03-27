@@ -87,6 +87,20 @@ a:hover {
 }
 
 .close-button {
-  float: right;
+  position: absolute;
+  top: 0;
+  right: 0%;
+  padding: 10px;
+}
 
+.settings-button {
+  position: absolute;
+  top: 0;
+  left: 0%;
+  padding: 10px;
+}
+
+.title {
+  text-align: center;
+  font-size: 30px;
 }
