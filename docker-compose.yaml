@@ -9,3 +9,4 @@ services:
       - "443:8443"
     volumes:
       - ./certs:/app/certs
+      - ./storage:/app/storage

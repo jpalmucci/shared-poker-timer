@@ -8,7 +8,7 @@ This is a little project that I wrote to:
 1) fix these problems
 2) learn Rust programming (because I think it's cool)
 
-The current version of the timer is hosted at https://pokertimer.palmucci.net/. Feel free to use it for your own games if you want. It's running on a $4/month Digital Ocean server, which should be good for hundreds if not thousands of running timers.
+The current version of the timer is hosted at https://pokertimer.palmucci.net/. Feel free to use it for your own games if you want. It's running on a tiny Digital Ocean server, which should be good for hundreds if not thousands of running timers.
 
 ## Usage
 

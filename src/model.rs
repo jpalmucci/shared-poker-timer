@@ -1,7 +1,7 @@
 use std::fmt;
 
 use chrono::Duration;
-type DateTime = chrono::DateTime<chrono::Local>;
+pub type DateTime = chrono::DateTime<chrono::Local>;
 
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Deserializer, Serialize};
 use uuid::Uuid;

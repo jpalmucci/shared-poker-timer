@@ -1,7 +1,11 @@
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
-    pokertimer::backend::main().await;
+    use log::error;
+
+    if let Err(e) = pokertimer::backend::main().await {
+        error!("Uncaught error {e}");
+    }
 }
 
 #[cfg(not(feature = "ssr"))]

@@ -1,5 +1,6 @@
 use crate::app::shell;
 use crate::app::App;
+use crate::model::DateTime;
 use crate::model::*;
 use axum::extract;
 use axum::extract::ws::Message;
@@ -17,6 +18,7 @@ use codee::Encoder;
 use dashmap::DashMap;
 use image::Luma;
 use leptos::prelude::ServerFnError;
+use leptos::server_fn::error::ServerFnErrorErr;
 use log::{error, info};
 use once_cell::sync::Lazy;
 use qrcode::QrCode;
@@ -25,7 +27,11 @@ use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
+use std::fs::File;
+use std::fs::OpenOptions;
+use std::io::BufReader;
 use std::io::Cursor;
+use std::io::Write;
 use std::sync::Arc;
 use tokio::time::sleep;
 use uuid::Uuid;
@@ -34,7 +40,7 @@ use web_push::{
     WebPushMessageBuilder,
 };
 
-pub async fn main() {
+pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::fs;
 
     use axum::{
@@ -67,11 +73,11 @@ pub async fn main() {
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
 
-
     let app = app.into_make_service();
     let handle = axum_server::Handle::new();
     let handle2 = handle.clone();
     tokio::spawn(async { shutdown_signal(handle2).await });
+    load_saved()?;
 
     if addr.port() == 8443 {
         // we want a https server
@@ -95,6 +101,7 @@ pub async fn main() {
             .await
             .unwrap();
     }
+    Ok(())
 }
 
 async fn shutdown_signal(handle: axum_server::Handle) {
@@ -117,12 +124,92 @@ async fn shutdown_signal(handle: axum_server::Handle) {
     }
     tokio::spawn(async move {
         info!("Shutting down");
-        // TODO - persist out the running tournaments
+        match save_running() {
+            Err(e) => error!("Couldn't save running timers: {e}"),
+            Ok(_) => (),
+        }
         info!("Shut down");
         handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
     });
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredTournament {
+    timer_id: Uuid,
+    created: DateTime,
+    structure_name: String,
+    level: usize,
+    // we cannot use the clockstate serialization here because it is designed to
+    // go over near instantaineous channels
+    clock_paused: bool,
+    clock_remaining: Duration,
+    clock_asof: DateTime,
+    duration_override: Option<Duration>,
+}
+
+impl From<&Tournament> for StoredTournament {
+    fn from(value: &Tournament) -> Self {
+        StoredTournament {
+            timer_id: value.timer_id,
+            created: value.created,
+            structure_name: value.structure_name.clone(),
+            level: value.level,
+            clock_paused: value.clock_state.is_paused(),
+            clock_remaining: value.clock_state.remaining(),
+            clock_asof: chrono::Local::now(),
+            duration_override: value.duration_override,
+        }
+    }
+}
+
+// TODO- replace with a database or something less error prone
+fn save_running() -> Result<(), Box<dyn std::error::Error>> {
+    let timers: Vec<StoredTournament> = TIMERS
+        .iter()
+        .filter(|timer| {
+            if let Some(t) = &timer.tournament {
+                chrono::Local::now()
+                    .signed_duration_since(t.created)
+                    .le(&Duration::weeks(1))
+            } else {
+                false
+            }
+        })
+        .map(|timer| StoredTournament::from(timer.tournament.as_ref().unwrap()))
+        .collect();
+
+    if timers.len() > 0 {
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open("./storage/timers.json")?
+            .write_all(&serde_json::to_vec(&timers)?)?;
+    }
+    Ok(())
+}
+
+fn load_saved() -> Result<(), Box<dyn std::error::Error>> {
+    let path = std::path::Path::new("./storage/timers.json");
+    if !path.exists() {
+        return Ok(());
+    }
+    let tournaments =
+        serde_json::from_reader::<_, Vec<StoredTournament>>(BufReader::new(File::open(path)?))?;
+
+    for t in tournaments.into_iter() {
+        let timer_id = t.timer_id;
+        TIMERS.insert(timer_id, Timer::new(timer_id));
+        let mut timer = TIMERS.get_mut(&timer_id).unwrap();
+        timer.make_tournament_from_storage(t)?;
+    }
+
+    let backpath = std::path::Path::new("./storage/timers.json.backup");
+    if backpath.exists() {
+        fs::remove_file(backpath)?;
+    }
+    fs::rename(path, backpath)?;
+    Ok(())
+}
 
 pub static STRUCTURE: Lazy<HashMap<String, Arc<Structure>>> = Lazy::new(|| {
     let mut map = HashMap::new();
@@ -521,13 +608,25 @@ impl Timer {
         });
         new_timer
     }
-    fn make_tournament(&mut self, structure: &Arc<Structure>) {
+    fn make_tournament(&mut self, structure_name: String) -> Result<(), ServerFnError> {
         if self.tournament.is_none() {
-            let tournament = Tournament::new(self, structure);
+            let tournament = Tournament::new(self, structure_name)?;
             let message = TournamentMessage::Hello(tournament.to_roundstate());
             self.tournament = Some(tournament);
             (&*self).broadcast(None, message);
         }
+        Ok(())
+    }
+
+    fn make_tournament_from_storage(
+        &mut self,
+        storage: StoredTournament,
+    ) -> Result<(), ServerFnErrorErr> {
+        let tournament = Tournament::from_storage(self, storage)?;
+        let message = TournamentMessage::Hello(tournament.to_roundstate());
+        self.tournament = Some(tournament);
+        (&*self).broadcast(None, message);
+        Ok(())
     }
 
     fn broadcast(&self, from_device_id: Option<Uuid>, message: TournamentMessage) {
@@ -611,7 +710,9 @@ impl Timer {
 }
 
 pub struct Tournament {
+    created: DateTime,
     timer_id: Uuid,
+    structure_name: String,
     structure: Arc<Structure>,
     level: usize,
     clock_state: ClockState,
@@ -625,19 +726,64 @@ enum LevelUpResult {
 }
 
 impl Tournament {
-    pub fn new(timer: &Timer, structure: &Arc<Structure>) -> Tournament {
-        let mut rx = timer.event_sender.new_receiver();
+    fn from_storage(timer: &Timer, args: StoredTournament) -> Result<Tournament, ServerFnError> {
+        let rx = timer.event_sender.new_receiver();
         let timer_id = timer.timer_id;
+        let structure = STRUCTURE
+            .get(&args.structure_name)
+            .ok_or(ServerFnError::new("Structure not found"))?
+            .clone();
+        let clock = if args.clock_paused {
+            ClockState::Paused {
+                remaining: args.clock_remaining,
+            }
+        } else {
+            ClockState::Running {
+                remaining: args.clock_remaining,
+                asof: args.clock_asof,
+            }
+        };
         let tournament = Tournament {
+            created: args.created,
             timer_id: timer.timer_id,
+            structure_name: args.structure_name,
             structure: structure.clone(),
+            level: args.level,
+            clock_state: clock,
+            duration_override: args.duration_override,
+        };
+        tournament.init(timer_id, rx);
+        return Ok(tournament);
+    }
+
+    fn new(timer: &Timer, structure_name: String) -> Result<Tournament, ServerFnError> {
+        let rx = timer.event_sender.new_receiver();
+        let timer_id = timer.timer_id;
+        let structure = STRUCTURE
+            .get(&structure_name)
+            .ok_or(ServerFnError::new("Structure not found"))?
+            .clone();
+        let clock_state = ClockState::Paused {
+            remaining: structure.get_level(1).duration(),
+        };
+        let tournament = Tournament {
+            created: chrono::Local::now(),
+            timer_id: timer.timer_id,
+            structure_name,
+            structure,
             level: 1,
-            clock_state: ClockState::Paused {
-                remaining: structure.get_level(1).duration(),
-            },
+            clock_state,
             duration_override: None,
         };
+        tournament.init(timer_id, rx);
+        return Ok(tournament);
+    }
 
+    fn init(
+        &self,
+        timer_id: Uuid,
+        mut rx: async_broadcast::Receiver<(TournamentMessage, Option<Uuid>)>,
+    ) {
         // start a thread to do the level changes
         // TODO - give a one minute warning before end of break
         tokio::spawn(async move {
@@ -701,8 +847,6 @@ impl Tournament {
             // FIXME - where should we delete these (or just let them sit?)
             // TIMERS.remove(&timer_id);
         });
-
-        return tournament;
     }
 
     fn level_up(&mut self, delta: i8) -> LevelUpResult {
@@ -719,8 +863,13 @@ impl Tournament {
             None => level.duration(),
         };
         self.clock_state = match self.clock_state {
-            ClockState::Paused { .. } => ClockState::Paused { remaining: duration },
-            ClockState::Running { .. } => ClockState::Running { remaining: duration, asof: chrono::Local::now() }
+            ClockState::Paused { .. } => ClockState::Paused {
+                remaining: duration,
+            },
+            ClockState::Running { .. } => ClockState::Running {
+                remaining: duration,
+                asof: chrono::Local::now(),
+            },
         };
         LevelUpResult::Ok
     }
@@ -801,7 +950,10 @@ impl Structure {
     }
 }
 
-pub async fn create_tournament(timer_id: Uuid, structure_name : String) -> Result<(), ServerFnError> {
+pub async fn create_tournament(
+    timer_id: Uuid,
+    structure_name: String,
+) -> Result<(), ServerFnError> {
     // make the timer if it does not exist yet
     if let Some(timer) = TIMERS.get(&timer_id) {
         if timer.tournament.is_some() {
@@ -815,16 +967,7 @@ pub async fn create_tournament(timer_id: Uuid, structure_name : String) -> Resul
     // if we are here, we have a timer with tournament = None
     if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
         info!("Creating tournament {timer_id}");
-        let structure = STRUCTURE.get(&structure_name);
-        match structure {
-            Some(structure) => {
-                timer.make_tournament(structure);
-                return Ok(());
-            }
-            None => {
-                return Err(ServerFnError::new("Structure not found"));
-            }
-        }
+        timer.make_tournament(structure_name)
     } else {
         return Err(ServerFnError::new(
             "Someone deleted the timer as we were creating the tournament",
@@ -946,29 +1089,29 @@ async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocket) {
     }
 }
 
-pub fn execute( cmd: &Command, timer_id : Uuid, device_id : Uuid ) {
+pub fn execute(cmd: &Command, timer_id: Uuid, device_id: Uuid) {
     match cmd {
-        Command::Resume =>  {
+        Command::Resume => {
             if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
                 timer.resume_tournament(device_id);
             }
-        },
-        Command::Pause =>  {
+        }
+        Command::Pause => {
             if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
                 timer.pause_tournament(device_id);
             }
-        },
-        Command::PrevLevel =>  {
+        }
+        Command::PrevLevel => {
             if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
                 timer.level_up(-1);
             }
-        },
-        Command::NextLevel =>  {
+        }
+        Command::NextLevel => {
             if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
                 timer.level_up(1);
             }
-        },
-        Command::Terminate =>  {
+        }
+        Command::Terminate => {
             if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
                 timer.terminate();
             }

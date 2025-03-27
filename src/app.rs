@@ -1,5 +1,4 @@
-
-use crate:: model::*;
+use crate::model::*;
 use chrono::Duration;
 use codee::string::JsonSerdeCodec;
 use lazy_regex::regex;
@@ -38,6 +37,20 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 }
 
 #[component]
+pub fn About() -> impl IntoView {
+    view! {
+        <a
+            style:float="right"
+            target="_blank"
+            rel="noopener noreferrer"
+            href="https://github.com/jpalmucci/shared-poker-timer"
+        >
+            About
+        </a>
+    }
+}
+
+#[component]
 pub fn App() -> impl IntoView {
     // Provides context that manages stylesheets, titles, meta tags, etc.
     provide_meta_context();
@@ -56,6 +69,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/:timer_id/settings/:timer_name") view=SettingsPage />
                 </Routes>
             </main>
+            <About />
         </Router>
     }
 }
@@ -249,9 +263,7 @@ fn extract_params() -> Result<(Uuid, String), String> {
         Ok(TimerPageParams {
             timer_id: Some(timer_id),
             timer_name: Some(timer_name),
-        }) => {
-            Ok((timer_id, timer_name))
-        }
+        }) => Ok((timer_id, timer_name)),
         _ => Err(format!("Bad Request {:?}", params.get())),
     }
 }
@@ -341,9 +353,10 @@ fn maybe_add_timer(_timer_id: Uuid, _timer_name: &str) {
 
 #[cfg(not(feature = "ssr"))]
 fn get_device_id() -> Uuid {
-    fn set_id(storage: &web_sys::Storage, id: Uuid) -> Uuid
-    {
-        storage.set_item("deviceid", &id.to_string()).expect("Couldn't set device_id");
+    fn set_id(storage: &web_sys::Storage, id: Uuid) -> Uuid {
+        storage
+            .set_item("deviceid", &id.to_string())
+            .expect("Couldn't set device_id");
         id
     }
     if let Ok(Some(storage)) = window().local_storage() {
@@ -356,7 +369,7 @@ fn get_device_id() -> Uuid {
                         set_id(&storage, Uuid::new_v4())
                     }
                 }
-            },
+            }
             _ => {
                 // id wasn't there, make a new one
                 set_id(&storage, Uuid::new_v4())
@@ -369,7 +382,9 @@ fn get_device_id() -> Uuid {
 }
 
 #[cfg(feature = "ssr")]
-fn get_device_id() -> Uuid { Uuid::nil() }
+fn get_device_id() -> Uuid {
+    Uuid::nil()
+}
 
 #[component]
 fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
@@ -401,8 +416,8 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
             };
         }
     });
-    let structures = Resource::new( || (), |_| structure_names());
-    let selected_structure = RwSignal::new( "Nightly NLHE".to_string());
+    let structures = Resource::new(|| (), |_| structure_names());
+    let selected_structure = RwSignal::new("Nightly NLHE".to_string());
 
     view! {
         {{
@@ -421,32 +436,37 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
 
                             <p>
                                 <h1>"No tournament running"</h1>
-                                <form class="form" on:submit=move |ev| {
-                                    ev.prevent_default();
-                                    spawn_local(async move {
-                                        create_tournament(timer_id, selected_structure.get()).await.unwrap();
-                                    });
-                                }>
-                                <div class="form-group">
-                                    <label for="structure">Choose a structure:</label>
-                                    <select
-                                        id="structure"
-                                        name="structure"
-                                        on:change:target=move |ev| {
-                                            let v = ev.target().value();
-                                            selected_structure.set(v);
-                                        }
-                                    >
-                                        {if let Some(Ok(x)) = structures.get() {
-                                            x.iter()
-                                                .map(|name| {
-                                                    view! { <option value=name.clone()>{name.clone()}</option> }
-                                                })
-                                                .collect_view()
-                                        } else {
-                                            Vec::new()
-                                        }}
-                                    </select>
+                                <form
+                                    class="form"
+                                    on:submit=move |ev| {
+                                        ev.prevent_default();
+                                        spawn_local(async move {
+                                            create_tournament(timer_id, selected_structure.get())
+                                                .await
+                                                .unwrap();
+                                        });
+                                    }
+                                >
+                                    <div class="form-group">
+                                        <label for="structure">Choose a structure:</label>
+                                        <select
+                                            id="structure"
+                                            name="structure"
+                                            on:change:target=move |ev| {
+                                                let v = ev.target().value();
+                                                selected_structure.set(v);
+                                            }
+                                        >
+                                            {if let Some(Ok(x)) = structures.get() {
+                                                x.iter()
+                                                    .map(|name| {
+                                                        view! { <option value=name.clone()>{name.clone()}</option> }
+                                                    })
+                                                    .collect_view()
+                                            } else {
+                                                Vec::new()
+                                            }}
+                                        </select>
                                     </div>
                                     <button type="submit">Start</button>
                                 </form>
@@ -570,7 +590,10 @@ pub async fn current_state(
 }
 
 #[server]
-pub async fn create_tournament(timer_id: Uuid, structure_name : String) -> Result<(), ServerFnError> {
+pub async fn create_tournament(
+    timer_id: Uuid,
+    structure_name: String,
+) -> Result<(), ServerFnError> {
     crate::backend::create_tournament(timer_id, structure_name).await
 }
 
@@ -702,7 +725,6 @@ fn SettingsPage() -> impl IntoView {
     });
     let device_id = get_device_id();
 
-
     view! {
         {move || {
             match extract_params() {
@@ -811,8 +833,12 @@ async fn tournament_settings(timer_id: Uuid) -> Result<Option<Duration>, ServerF
 }
 
 #[server]
-async fn execute_command( cmd : Command, timer_id: Uuid, device_id : Uuid ) -> Result<(), ServerFnError> {
-    crate::backend::execute( &cmd, timer_id, device_id );
+async fn execute_command(
+    cmd: Command,
+    timer_id: Uuid,
+    device_id: Uuid,
+) -> Result<(), ServerFnError> {
+    crate::backend::execute(&cmd, timer_id, device_id);
     Ok(())
 }
 
