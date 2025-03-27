@@ -88,8 +88,6 @@ pub async fn main() {
             .await
             .unwrap();
     } else {
-        // run our app with hyper
-        // `axum::Server` is a re-export of `hyper::Server`
         log!("listening on http://{}", &addr);
         axum_server::bind(addr)
             .handle(handle)
@@ -119,6 +117,7 @@ async fn shutdown_signal(handle: axum_server::Handle) {
     }
     tokio::spawn(async move {
         info!("Shutting down");
+        // TODO - persist out the running tournaments
         info!("Shut down");
         handle.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
     });
@@ -802,7 +801,7 @@ impl Structure {
     }
 }
 
-pub async fn create_tournament(timer_id: Uuid) -> Result<(), ServerFnError> {
+pub async fn create_tournament(timer_id: Uuid, structure_name : String) -> Result<(), ServerFnError> {
     // make the timer if it does not exist yet
     if let Some(timer) = TIMERS.get(&timer_id) {
         if timer.tournament.is_some() {
@@ -816,7 +815,7 @@ pub async fn create_tournament(timer_id: Uuid) -> Result<(), ServerFnError> {
     // if we are here, we have a timer with tournament = None
     if let Some(mut timer) = TIMERS.get_mut(&timer_id) {
         info!("Creating tournament {timer_id}");
-        let structure = STRUCTURE.get("XNPG Nightly TOC");
+        let structure = STRUCTURE.get(&structure_name);
         match structure {
             Some(structure) => {
                 timer.make_tournament(structure);

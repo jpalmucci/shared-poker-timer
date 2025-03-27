@@ -4,6 +4,7 @@ use chrono::Duration;
 use codee::string::JsonSerdeCodec;
 use lazy_regex::regex;
 use leptos::{logging::error, prelude::*, task::spawn_local};
+// https://carloskiki.github.io/icondata/
 use leptos_icons::Icon;
 use leptos_meta::{provide_meta_context, Link, MetaTags, Stylesheet, Title};
 use leptos_router::{
@@ -400,6 +401,8 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
             };
         }
     });
+    let structures = Resource::new( || (), |_| structure_names());
+    let selected_structure = RwSignal::new( "XNPG Nightly NLHE".to_string());
 
     view! {
         {{
@@ -410,19 +413,43 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                     TimerCompState::NoTournament => {
                         view! {
                             <h1>
-                            {
-                                let timer_name = timer_name.clone();
-                                move || { timer_name.clone() }
-                            } 
+                                {
+                                    let timer_name = timer_name.clone();
+                                    move || { timer_name.clone() }
+                                }
                             </h1>
 
                             <p>
-                                <div>"No tournament running"</div>
-                                <button on:click=move |_| {
+                                <h1>"No tournament running"</h1>
+                                <form class="form" on:submit=move |ev| {
+                                    ev.prevent_default();
                                     spawn_local(async move {
-                                        create_tournament(timer_id).await.unwrap();
+                                        create_tournament(timer_id, selected_structure.get()).await.unwrap();
                                     });
-                                }>Start</button>
+                                }>
+                                <div class="form-group">
+                                    <label for="structure">Choose a structure:</label>
+                                    <select
+                                        id="structure"
+                                        name="structure"
+                                        on:change:target=move |ev| {
+                                            let v = ev.target().value();
+                                            selected_structure.set(v);
+                                        }
+                                    >
+                                        {if let Some(Ok(x)) = structures.get() {
+                                            x.iter()
+                                                .map(|name| {
+                                                    view! { <option value=name.clone()>{name.clone()}</option> }
+                                                })
+                                                .collect_view()
+                                        } else {
+                                            Vec::new()
+                                        }}
+                                    </select>
+                                    </div>
+                                    <button type="submit">Start</button>
+                                </form>
                             </p>
                             <img src=format!("/{timer_id}/qr/{encoded_name}") />
                         }
@@ -436,10 +463,10 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                         view! {
                             <SettingsButton timer_id=timer_id timer_name=timer_name.clone() />
                             <div class="title">
-                            {
-                                let timer_name = timer_name.clone();
-                                move || { timer_name.clone() }
-                            } 
+                                {
+                                    let timer_name = timer_name.clone();
+                                    move || { timer_name.clone() }
+                                }
                             </div>
 
                             <div class="level">
@@ -543,8 +570,8 @@ pub async fn current_state(
 }
 
 #[server]
-pub async fn create_tournament(timer_id: Uuid) -> Result<(), ServerFnError> {
-    crate::backend::create_tournament(timer_id).await
+pub async fn create_tournament(timer_id: Uuid, structure_name : String) -> Result<(), ServerFnError> {
+    crate::backend::create_tournament(timer_id, structure_name).await
 }
 
 fn register_service_worker(device_id: Uuid, timer_id: Uuid) {
@@ -789,3 +816,10 @@ async fn execute_command( cmd : Command, timer_id: Uuid, device_id : Uuid ) -> R
     Ok(())
 }
 
+#[server]
+async fn structure_names() -> Result<Vec<String>, ServerFnError> {
+    Ok(crate::backend::STRUCTURE
+        .keys()
+        .map(|x| x.clone())
+        .collect())
+}
