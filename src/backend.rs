@@ -127,7 +127,7 @@ async fn shutdown_signal(handle: axum_server::Handle) {
 pub static STRUCTURE: Lazy<HashMap<String, Arc<Structure>>> = Lazy::new(|| {
     let mut map = HashMap::new();
     map.insert(
-        "XNPG Nightly TOC".to_string(),
+        "Nightly TOC".to_string(),
         Arc::new(Structure {
             levels: vec![
                 Level::Limit {
@@ -276,7 +276,7 @@ pub static STRUCTURE: Lazy<HashMap<String, Arc<Structure>>> = Lazy::new(|| {
     );
 
     map.insert(
-        "XNPG Nightly NLHE".to_string(),
+        "Nightly NLHE".to_string(),
         Arc::new(Structure {
             levels: vec![
                 Level::Blinds {

@@ -402,7 +402,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
         }
     });
     let structures = Resource::new( || (), |_| structure_names());
-    let selected_structure = RwSignal::new( "XNPG Nightly NLHE".to_string());
+    let selected_structure = RwSignal::new( "Nightly NLHE".to_string());
 
     view! {
         {{
