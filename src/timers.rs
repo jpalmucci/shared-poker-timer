@@ -158,7 +158,7 @@ impl Timer {
         });
     }
 
-    fn make_tournament(&mut self, structure_name: String) -> Result<(), ServerFnError> {
+    pub fn make_tournament(&mut self, structure_name: String) -> Result<(), ServerFnError> {
         if self.tournament.is_none() {
             let tournament = Tournament::new(self, structure_name)?;
             self.tournament = Some(tournament);
@@ -256,7 +256,7 @@ impl Timer {
             TimerCompState::NoTournament
         }
     }
-    fn update_settings(&mut self, duration_override: Option<Duration>) {
+    pub fn update_settings(&mut self, duration_override: Option<Duration>) {
         if let Some(ref mut tournament) = &mut self.tournament {
             tournament.update_settings(duration_override);
             (&*self).broadcast(None, TournamentMessage::Settings);
@@ -276,6 +276,26 @@ impl Timer {
             (&*self).broadcast(Some(device_id), TournamentMessage::Pause);
         }
     }
+    pub fn execute(&mut self, cmd: &Command, device_id: Uuid) {
+        match cmd {
+            Command::Resume => {
+                self.resume_tournament(device_id);
+            }
+            Command::Pause => {
+                self.pause_tournament(device_id);
+            }
+            Command::PrevLevel => {
+                self.level_up(-1);
+            }
+            Command::NextLevel => {
+                self.level_up(1);
+            }
+            Command::Terminate => {
+                self.terminate();
+            }
+        }
+    }
+    
 }
 
 pub struct Tournament {
@@ -513,37 +533,8 @@ pub fn set_tournament_settings(
     timer_id: Uuid,
     duration_override: Option<Duration>,
 ) -> Result<(), ServerFnError> {
-    let mut timer = Timer::get_mut(timer_id);
-    match &mut timer.tournament {
-        Some(tournament) => {
-            tournament.update_settings(duration_override);
-            return Ok(());
-        }
-        None => {
-            return Err(ServerFnError::new("Tournament not running"));
-        }
-    }
-}
-
-pub fn execute(cmd: &Command, timer_id: Uuid, device_id: Uuid) {
-    let mut timer = Timer::get_mut(timer_id);
-    match cmd {
-        Command::Resume => {
-            timer.resume_tournament(device_id);
-        }
-        Command::Pause => {
-            timer.pause_tournament(device_id);
-        }
-        Command::PrevLevel => {
-            timer.level_up(-1);
-        }
-        Command::NextLevel => {
-            timer.level_up(1);
-        }
-        Command::Terminate => {
-            timer.terminate();
-        }
-    }
+    Timer::get_mut(timer_id).update_settings(duration_override);
+    Ok(())
 }
 
 pub async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocket) {
@@ -600,7 +591,7 @@ pub async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocke
                 Some(Ok(Message::Text(msg))) => {
                     match serde_json::from_str::<Command>(&msg) {
                         Ok(cmd) =>  {
-                            execute( &cmd, timer_id, device_id);
+                            Timer::get_mut(timer_id).execute( &cmd, device_id);
                         },
 
                         Err(_) => break

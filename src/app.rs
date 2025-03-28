@@ -599,7 +599,13 @@ pub async fn create_tournament(
     timer_id: Uuid,
     structure_name: String,
 ) -> Result<(), ServerFnError> {
-    crate::timers::create_tournament(timer_id, structure_name).await
+    use crate::timers::Timer;
+    let mut timer = Timer::get_mut(timer_id);
+    if timer.tournament.is_some() {
+        return Ok(());
+    }
+    info!("Creating tournament {timer_id}");
+    timer.make_tournament(structure_name)
 }
 
 fn register_service_worker(device_id: Uuid, timer_id: Uuid) {
@@ -829,12 +835,18 @@ async fn set_tournament_settings(
     timer_id: Uuid,
     duration_override: Option<Duration>,
 ) -> Result<(), ServerFnError> {
-    crate::timers::set_tournament_settings(timer_id, duration_override)
+    use crate::timers::Timer;
+    Timer::get_mut(timer_id).update_settings(duration_override);
+    Ok(())
 }
 
 #[server]
 async fn tournament_settings(timer_id: Uuid) -> Result<Option<Duration>, ServerFnError> {
-    return crate::timers::tourament_settings(timer_id);
+    use crate::timers::Timer;
+    match &Timer::get(timer_id).tournament {
+        Some(t) => Ok(t.duration_override),
+        None => Err(ServerFnError::new("running tournament")),
+    }
 }
 
 #[server]
@@ -843,7 +855,8 @@ async fn execute_command(
     timer_id: Uuid,
     device_id: Uuid,
 ) -> Result<(), ServerFnError> {
-    crate::timers::execute(&cmd, timer_id, device_id);
+    use crate::timers::Timer;
+    Timer::get_mut(timer_id).execute(&cmd, device_id);
     Ok(())
 }
 
