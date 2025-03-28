@@ -26,7 +26,7 @@ pub static TIMERS: Lazy<DashMap<Uuid, Timer>> = Lazy::new(|| DashMap::new());
 pub enum TournamentMessage {
     SubscriptionChange(Uuid),
     Hello,
-    Goodbye,    
+    Goodbye,
     Pause,
     Resume,
     LevelUp(RoundState),
@@ -35,8 +35,6 @@ pub enum TournamentMessage {
 
 pub struct Timer {
     pub timer_id: Uuid,
-    /// The devices that have PWA notification active for the current tournament
-    subscriptions: HashMap<Uuid, Subscription>,
     /// contains the message and the device ID responsible for the message (if there is one)
     /// this is useful if you want to stifle a PWA notification resulting from an action
     /// that user initialted (which would be annoying)
@@ -50,7 +48,6 @@ impl Timer {
         let (tx, mut rx) = async_broadcast::broadcast(100);
         let new_timer = Timer {
             timer_id: timer_id.clone(),
-            subscriptions: HashMap::new(),
             event_sender: tx,
             tournament: None,
         };
@@ -105,7 +102,10 @@ impl Timer {
                             TournamentMessage::SubscriptionChange(_) => continue,
                         });
                         let subscriptions = match TIMERS.get(&timer_id) {
-                            Some(tournament) => tournament.subscriptions.clone(),
+                            Some(timer) => match &timer.tournament {
+                                Some(tournament) => tournament.subscriptions.clone(),
+                                None => break,
+                            },
                             None => break,
                         };
 
@@ -160,16 +160,29 @@ impl Timer {
 
     pub fn subscribe(&mut self, payload: Subscription) {
         let device_id = payload.device_id;
-        self.subscriptions.remove(&device_id);
-        self.subscriptions.insert(device_id, payload);
-        info!("Device {} is subscribed.", device_id);
-        self.broadcast(None, TournamentMessage::SubscriptionChange(device_id));
+        match &mut self.tournament {
+            Some(ref mut tournament) => {
+                tournament.subscriptions.remove(&device_id);
+                tournament.subscriptions.insert(device_id, payload);
+                info!("Device {} is subscribed.", device_id);
+                self.broadcast(None, TournamentMessage::SubscriptionChange(device_id));
+            }
+            None => {}
+        }
     }
 
-    pub fn unsubscribe(&mut self, payload : Subscription) {
-        self.subscriptions.remove(&payload.device_id);
-        info!("Device {} is unsubscribed.", payload.device_id);
-        self.broadcast(None, TournamentMessage::SubscriptionChange(payload.device_id));
+    pub fn unsubscribe(&mut self, payload: Subscription) {
+        match &mut self.tournament {
+            Some(ref mut tournament) => {
+                tournament.subscriptions.remove(&payload.device_id);
+                info!("Device {} is unsubscribed.", payload.device_id);
+                self.broadcast(
+                    None,
+                    TournamentMessage::SubscriptionChange(payload.device_id),
+                );
+            }
+            None => {}
+        }
     }
 
     /// return true if the level is done
@@ -184,8 +197,6 @@ impl Timer {
             LevelUpResult::Invalid => false,
             LevelUpResult::Done => {
                 self.tournament = None;
-                // subscriptions (for pwa notification) expire when the tournament ends
-                self.subscriptions.clear();
                 (&*self).broadcast(None, TournamentMessage::Goodbye);
                 true
             }
@@ -200,14 +211,12 @@ impl Timer {
 
     fn terminate(&mut self) {
         self.tournament = None;
-        // subscriptions (for pwa notification) expire when the tournament ends
-        self.subscriptions.clear();
         (&*self).broadcast(None, TournamentMessage::Goodbye);
     }
 
     pub fn to_timer_comp_state(&self, device: &Uuid) -> TimerCompState {
         if let Some(tournament) = &self.tournament {
-            let subscribed = self.subscriptions.contains_key(&device);
+            let subscribed = tournament.subscriptions.contains_key(&device);
             TimerCompState::Running {
                 subscribed,
                 state: tournament.to_roundstate(),
@@ -246,6 +255,8 @@ pub struct Tournament {
     pub level: usize,
     pub clock_state: ClockState,
     pub duration_override: Option<Duration>,
+    /// The devices that have PWA notification active for the current tournament
+    pub subscriptions: HashMap<Uuid, Subscription>,
 }
 // return true if the tournament is complete
 enum LevelUpResult {
@@ -280,6 +291,7 @@ impl Tournament {
             level: args.level,
             clock_state: clock,
             duration_override: args.duration_override,
+            subscriptions: args.subscriptions
         };
         tournament.init(timer_id, rx);
         return Ok(tournament);
@@ -303,6 +315,7 @@ impl Tournament {
             level: 1,
             clock_state,
             duration_override: None,
+            subscriptions: HashMap::new()
         };
         tournament.init(timer_id, rx);
         return Ok(tournament);

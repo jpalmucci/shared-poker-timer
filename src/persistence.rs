@@ -4,15 +4,13 @@
 //! when the new server comes up so we don't interrupt any games.
 
 use std::{
-    fs,
-    io::{BufReader, Write},
+    collections::HashMap, fs, io::{BufReader, Write}
 };
 
 use uuid::Uuid;
 
 use crate::{
-    timers::{Timer, Tournament, TIMERS},
-    model::*,
+    backend::Subscription, model::*, timers::{Timer, Tournament, TIMERS}
 };
 
 /// This is the format that the tournaments are stored on disk.
@@ -29,6 +27,7 @@ pub struct StoredTournament {
     pub clock_remaining: Duration,
     pub clock_asof: DateTime,
     pub duration_override: Option<Duration>,
+    pub subscriptions : HashMap<Uuid, Subscription>
 }
 
 impl From<&Tournament> for StoredTournament {
@@ -42,6 +41,7 @@ impl From<&Tournament> for StoredTournament {
             clock_remaining: value.clock_state.remaining(),
             clock_asof: now(),
             duration_override: value.duration_override,
+            subscriptions: value.subscriptions.clone()
         }
     }
 }

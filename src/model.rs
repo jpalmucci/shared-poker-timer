@@ -181,9 +181,7 @@ impl ClockState {
     pub fn remaining(&self) -> Duration {
         match self {
             Self::Paused { remaining } => *remaining,
-            Self::Running { remaining, asof } => {
-                *remaining - now().signed_duration_since(asof)
-            }
+            Self::Running { remaining, asof } => *remaining - now().signed_duration_since(asof),
         }
     }
 }
