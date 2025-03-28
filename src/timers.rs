@@ -25,12 +25,12 @@ pub static TIMERS: Lazy<DashMap<Uuid, Timer>> = Lazy::new(|| DashMap::new());
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub enum TournamentMessage {
     SubscriptionChange(Uuid),
-    Hello(RoundState),
-    Goodbye,
-    Pause(RoundState),
-    Resume(RoundState),
+    Hello,
+    Goodbye,    
+    Pause,
+    Resume,
     LevelUp(RoundState),
-    Settings(RoundState),
+    Settings,
 }
 
 pub struct Timer {
@@ -72,16 +72,16 @@ impl Timer {
 
                     Ok((message, from_device_id)) => {
                         let notification = Arc::new(match &message {
-                            TournamentMessage::Hello(_) => Notification {
+                            TournamentMessage::Hello => Notification {
                                 title: "Hello".to_string(),
                                 body: "Notifications are on".to_string(),
                             },
 
-                            TournamentMessage::Pause(_) => Notification {
+                            TournamentMessage::Pause => Notification {
                                 title: "Update".to_string(),
                                 body: "Tournament Paused".to_string(),
                             },
-                            TournamentMessage::Resume(_) => Notification {
+                            TournamentMessage::Resume => Notification {
                                 title: "Update".to_string(),
                                 body: "Tournament Resumed".to_string(),
                             },
@@ -92,7 +92,7 @@ impl Timer {
                                     body: format!["Level Up: {level}"],
                                 }
                             }
-                            TournamentMessage::Settings(_) => Notification {
+                            TournamentMessage::Settings => Notification {
                                 title: "Update".to_string(),
                                 body: "Tournament settings have changed".to_string(),
                             },
@@ -130,9 +130,8 @@ impl Timer {
     fn make_tournament(&mut self, structure_name: String) -> Result<(), ServerFnError> {
         if self.tournament.is_none() {
             let tournament = Tournament::new(self, structure_name)?;
-            let message = TournamentMessage::Hello(tournament.to_roundstate());
             self.tournament = Some(tournament);
-            (&*self).broadcast(None, message);
+            (&*self).broadcast(None, TournamentMessage::Hello);
         }
         Ok(())
     }
@@ -142,9 +141,8 @@ impl Timer {
         storage: StoredTournament,
     ) -> Result<(), ServerFnErrorErr> {
         let tournament = Tournament::from_storage(self, storage)?;
-        let message = TournamentMessage::Hello(tournament.to_roundstate());
         self.tournament = Some(tournament);
-        (&*self).broadcast(None, message);
+        (&*self).broadcast(None, TournamentMessage::Hello);
         Ok(())
     }
 
@@ -221,24 +219,21 @@ impl Timer {
     fn update_settings(&mut self, duration_override: Option<Duration>) {
         if let Some(ref mut tournament) = &mut self.tournament {
             tournament.update_settings(duration_override);
-            let message = TournamentMessage::Settings(tournament.to_roundstate());
-            (&*self).broadcast(None, message);
+            (&*self).broadcast(None, TournamentMessage::Settings);
         }
     }
 
     fn resume_tournament(&mut self, device_id: Uuid) {
         if let Some(ref mut tournament) = &mut self.tournament {
             tournament.clock_state = tournament.clock_state.resume();
-            let message = TournamentMessage::Resume(tournament.to_roundstate());
-            (&*self).broadcast(Some(device_id), message);
+            (&*self).broadcast(Some(device_id), TournamentMessage::Resume);
         }
     }
 
     fn pause_tournament(&mut self, device_id: Uuid) {
         if let Some(ref mut tournament) = &mut self.tournament {
             tournament.clock_state = tournament.clock_state.pause();
-            let message = TournamentMessage::Pause(tournament.to_roundstate());
-            (&*self).broadcast(Some(device_id), message);
+            (&*self).broadcast(Some(device_id), TournamentMessage::Pause);
         }
     }
 }
