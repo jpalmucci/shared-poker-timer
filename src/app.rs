@@ -590,7 +590,8 @@ pub async fn current_state(
     device_id: Uuid,
     timer_id: Uuid,
 ) -> Result<TimerCompState, ServerFnError> {
-    crate::timers::current_state(device_id, timer_id).await
+    use crate::timers::Timer;
+    Ok(Timer::get(timer_id).to_timer_comp_state(&device_id))
 }
 
 #[server]

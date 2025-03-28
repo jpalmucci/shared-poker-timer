@@ -4,13 +4,17 @@
 //! when the new server comes up so we don't interrupt any games.
 
 use std::{
-    collections::HashMap, fs, io::{BufReader, Write}
+    collections::HashMap,
+    fs,
+    io::{BufReader, Write},
 };
 
 use uuid::Uuid;
 
 use crate::{
-    backend::Subscription, model::*, timers::{Timer, Tournament, TIMERS}
+    backend::Subscription,
+    model::*,
+    timers::{Timer, Tournament},
 };
 
 /// This is the format that the tournaments are stored on disk.
@@ -27,7 +31,7 @@ pub struct StoredTournament {
     pub clock_remaining: Duration,
     pub clock_asof: DateTime,
     pub duration_override: Option<Duration>,
-    pub subscriptions : HashMap<Uuid, Subscription>
+    pub subscriptions: HashMap<Uuid, Subscription>,
 }
 
 impl From<&Tournament> for StoredTournament {
@@ -41,26 +45,17 @@ impl From<&Tournament> for StoredTournament {
             clock_remaining: value.clock_state.remaining(),
             clock_asof: now(),
             duration_override: value.duration_override,
-            subscriptions: value.subscriptions.clone()
+            subscriptions: value.subscriptions.clone(),
         }
     }
 }
 
 /// Save the running tournaments that a less than a week old
 pub fn save_running() -> Result<(), Box<dyn std::error::Error>> {
-    let timers: Vec<StoredTournament> = TIMERS
-        .iter()
-        .filter(|timer| {
-            if let Some(t) = &timer.tournament {
-                now()
-                    .signed_duration_since(t.created)
-                    .le(&Duration::weeks(1))
-            } else {
-                false
-            }
-        })
-        .map(|timer| StoredTournament::from(timer.tournament.as_ref().unwrap()))
-        .collect();
+    let mut timers: Vec<StoredTournament> = vec![];
+    Timer::for_running_timers(|t| {
+        timers.push(StoredTournament::from(t.tournament.as_ref().unwrap()))
+    });
 
     if timers.len() > 0 {
         fs::OpenOptions::new()
@@ -82,8 +77,7 @@ pub fn load_saved() -> Result<(), Box<dyn std::error::Error>> {
 
     for t in tournaments.into_iter() {
         let timer_id = t.timer_id;
-        TIMERS.insert(timer_id, Timer::new(timer_id));
-        let mut timer = TIMERS.get_mut(&timer_id).unwrap();
+        let mut timer = Timer::get_mut(timer_id);
         timer.make_tournament_from_storage(t)?;
     }
 

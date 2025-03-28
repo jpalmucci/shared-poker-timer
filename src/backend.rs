@@ -5,7 +5,7 @@ use crate::app::App;
 use crate::persistence::load_saved;
 use crate::persistence::save_running;
 use crate::timers::handle_socket;
-use crate::timers::TIMERS;
+use crate::timers::Timer;
 use axum::extract;
 use axum::extract::Path;
 use axum::extract::WebSocketUpgrade;
@@ -202,30 +202,18 @@ pub async fn subscribe(
     Path(timer_id): Path<Uuid>,
     extract::Json(payload): extract::Json<Subscription>,
 ) -> impl IntoResponse {
-    match TIMERS.get_mut(&timer_id) {
-        None => {
-            return (StatusCode::NOT_FOUND, "Not found".to_string());
-        }
-        Some(mut t) => {
-            t.subscribe(payload);
-            return (StatusCode::OK, "ok".to_string());
-        }
-    }
+    let mut t = Timer::get_mut(timer_id);
+    t.subscribe(payload);
+    return (StatusCode::OK, "ok".to_string());
 }
 
 pub async fn unsubscribe(
     Path(timer_id): Path<Uuid>,
     extract::Json(payload): extract::Json<Subscription>,
 ) -> Result<String, StatusCode> {
-    match TIMERS.get_mut(&timer_id) {
-        None => {
-            return Err(StatusCode::NOT_FOUND);
-        }
-        Some(mut t) => {
-            t.unsubscribe(payload);
-            Ok("ok".to_string())
-        }
-    }
+    let mut t = Timer::get_mut(timer_id);
+    t.unsubscribe(payload);
+    Ok("ok".to_string())
 }
 
 pub async fn manifest(Path((timer_id, timer_name)): Path<(Uuid, String)>) -> impl IntoResponse {
