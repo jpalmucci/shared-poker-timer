@@ -1,5 +1,6 @@
+//! All the front end code
+
 use crate::model::*;
-use chrono::Duration;
 use codee::string::JsonSerdeCodec;
 use lazy_regex::regex;
 use leptos::{logging::error, prelude::*, task::spawn_local};
@@ -36,6 +37,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
     }
 }
 
+/// A component included on all pages that links back to the github repo where people can submit issues and patches.
 #[component]
 pub fn About() -> impl IntoView {
     view! {
@@ -74,12 +76,17 @@ pub fn App() -> impl IntoView {
     }
 }
 
+/// Timers are stored in local storage in the brower. These never saved on the server.
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct TimerRef {
     id: Uuid,
     name: String,
 }
 
+/// a form component that gets a string value
+/// The error state is simply a string that is displayed when
+/// the current value is invalid. Validator is a function
+/// that is called to validate the input
 #[component]
 fn TextInput(
     #[prop(optional)] name: Option<String>,
@@ -105,10 +112,6 @@ fn TextInput(
                     let v: String = ev.target().value();
                     if let Some(error) = validator(&v) {
                         signal.set(Err(error));
-                        return;
-                    }
-                    if v.len() == 0 {
-                        signal.set(Err("Required".to_string()));
                     } else {
                         signal.set(Ok(v));
                     }
@@ -125,6 +128,7 @@ fn TextInput(
     }
 }
 
+/// a validator that insured there is some value in the string
 fn required(s: &str) -> Option<String> {
     if s.len() == 0 {
         Some("Required".to_string())
@@ -133,6 +137,7 @@ fn required(s: &str) -> Option<String> {
     }
 }
 
+/// button that sits at the top right of the screen to bring you to the home page
 #[component]
 fn CloseButton(href: Option<String>) -> impl IntoView {
     let nav = use_navigate();
@@ -202,7 +207,6 @@ fn HomePage() -> impl IntoView {
     view! {
         <Link rel="manifest" href="/manifest.json" />
         <Title text="Shared Poker timer" />
-        // TODO: write an explanation of what this is
         <h1>"My Timers"</h1>
         <div class="form">
             <For
@@ -586,7 +590,7 @@ pub async fn current_state(
     device_id: Uuid,
     timer_id: Uuid,
 ) -> Result<TimerCompState, ServerFnError> {
-    crate::backend::current_state(device_id, timer_id).await
+    crate::timers::current_state(device_id, timer_id).await
 }
 
 #[server]
@@ -594,7 +598,7 @@ pub async fn create_tournament(
     timer_id: Uuid,
     structure_name: String,
 ) -> Result<(), ServerFnError> {
-    crate::backend::create_tournament(timer_id, structure_name).await
+    crate::timers::create_tournament(timer_id, structure_name).await
 }
 
 fn register_service_worker(device_id: Uuid, timer_id: Uuid) {
@@ -701,7 +705,7 @@ fn InputOptionalDuration(
     }
 }
 
-// TODO - change level time
+// TODO - change current level's time
 
 #[component]
 fn SettingsPage() -> impl IntoView {
@@ -824,12 +828,12 @@ async fn set_tournament_settings(
     timer_id: Uuid,
     duration_override: Option<Duration>,
 ) -> Result<(), ServerFnError> {
-    crate::backend::set_tournament_settings(timer_id, duration_override)
+    crate::timers::set_tournament_settings(timer_id, duration_override)
 }
 
 #[server]
 async fn tournament_settings(timer_id: Uuid) -> Result<Option<Duration>, ServerFnError> {
-    return crate::backend::tourament_settings(timer_id);
+    return crate::timers::tourament_settings(timer_id);
 }
 
 #[server]
@@ -838,13 +842,13 @@ async fn execute_command(
     timer_id: Uuid,
     device_id: Uuid,
 ) -> Result<(), ServerFnError> {
-    crate::backend::execute(&cmd, timer_id, device_id);
+    crate::timers::execute(&cmd, timer_id, device_id);
     Ok(())
 }
 
 #[server]
 async fn structure_names() -> Result<Vec<String>, ServerFnError> {
-    Ok(crate::backend::STRUCTURE
+    Ok(crate::structures::STRUCTURES
         .keys()
         .map(|x| x.clone())
         .collect())

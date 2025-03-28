@@ -1,7 +1,12 @@
+//! All the data that is sent between the back end and the front end
+
 use std::fmt;
 
-use chrono::Duration;
+pub type Duration = chrono::Duration;
 pub type DateTime = chrono::DateTime<chrono::Local>;
+pub fn now() -> DateTime {
+    chrono::Local::now()
+}
 
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
@@ -13,13 +18,13 @@ pub enum Level {
         small: u32,
         big: u32,
         ante: u32,
-        duration: chrono::Duration,
+        duration: Duration,
     },
     Limit {
         game: String,
         small: u32,
         big: u32,
-        duration: chrono::Duration,
+        duration: Duration,
     },
     Stud {
         game: String,
@@ -27,16 +32,16 @@ pub enum Level {
         bring_in: u32,
         small: u32,
         big: u32,
-        duration: chrono::Duration,
+        duration: Duration,
     },
     Break {
-        duration: chrono::Duration,
+        duration: Duration,
     },
     Done,
 }
 
 impl Level {
-    pub fn duration(&self) -> chrono::Duration {
+    pub fn duration(&self) -> Duration {
         match self {
             Self::Blinds { duration, .. } => duration.clone(),
             Self::Limit { duration, .. } => duration.clone(),
@@ -74,6 +79,7 @@ impl Level {
     }
 }
 
+/// The state of a clock. Can be pause or running, each with some duration left
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum ClockState {
     Paused { remaining: Duration },
@@ -93,8 +99,10 @@ impl fmt::Display for ClockState {
     }
 }
 
-// when sending a clock state across the wire, don't send a DateTime as it will
-// screw up when there is time scew between the client and the server
+/// when sending a clock state across the wire, don't send a DateTime as it will
+/// screw up when there is time scew between the client and the server
+/// just send the duration, and decode it using the current machine time at the end
+/// (we assume that the network transit time is negligable)
 impl Serialize for ClockState {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -110,14 +118,14 @@ impl Serialize for ClockState {
             ClockState::Running { remaining, asof } => {
                 let mut s = serializer.serialize_struct("ClockState", 2)?;
                 s.serialize_field("paused", &false)?;
-                let remaining_asof_now =
-                    *remaining - (chrono::Local::now().signed_duration_since(asof));
+                let remaining_asof_now = *remaining - (now().signed_duration_since(asof));
                 s.serialize_field("remaining", &remaining_asof_now)?;
                 s.end()
             }
         }
     }
 }
+
 impl<'de> Deserialize<'de> for ClockState {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -154,7 +162,7 @@ impl<'de> Deserialize<'de> for ClockState {
                 } else {
                     Ok(ClockState::Running {
                         remaining: remaining.unwrap(),
-                        asof: chrono::Local::now(),
+                        asof: now(),
                     })
                 }
             }
@@ -174,12 +182,13 @@ impl ClockState {
         match self {
             Self::Paused { remaining } => *remaining,
             Self::Running { remaining, asof } => {
-                *remaining - chrono::Local::now().signed_duration_since(asof)
+                *remaining - now().signed_duration_since(asof)
             }
         }
     }
 }
 
+/// All the information that you need to display the current level in the browser
 #[derive(PartialEq, Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub struct RoundState {
     pub cur: Level,
@@ -198,32 +207,19 @@ pub enum TimerCompState {
     Error(String),
 }
 
-// an internal message that is passed on the backend message bus
-#[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
-pub enum TournamentMessage {
-    SubscriptionChange(Uuid),
-    Hello(RoundState),
-    Goodbye,
-    Pause(RoundState),
-    Resume(RoundState),
-    LevelUp(RoundState),
-    Settings(RoundState),
-}
-
-// a message sent from the backend to the app
+/// a message sent from the backend to the app
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub enum DeviceMessage {
     NewState(TimerCompState),
     Beep,
 }
 
-// a message sent from the app to the backend
+/// a message sent from the app to the backend
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub enum Command {
     Pause,
     Resume,
     NextLevel,
     PrevLevel,
-    // TODO: move to the settings window
     Terminate,
 }
