@@ -24,13 +24,19 @@ static TIMERS: Lazy<DashMap<Uuid, Timer>> = Lazy::new(|| DashMap::new());
 // an internal message that is passed on the backend message bus
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub enum TournamentMessage {
-    SubscriptionChange(Uuid),
-    Hello,
-    Goodbye,
+    /// The given device just change notifications
+    NotificationChange(Uuid),
+    /// a new tournament started
+    Started,
+    /// the tournament ended
+    Ended,
     Pause,
     Resume,
     LevelUp(RoundState),
+    /// The tournament settings changed
     Settings,
+    /// One minute warning till end of break
+    OneMinuteWarning,
 }
 
 pub struct Timer {
@@ -46,17 +52,17 @@ pub struct Timer {
 impl Timer {
     /// timers are light weight enough that they just exist until the next time the server bounces
     pub fn get(timer_id: Uuid) -> dashmap::mapref::one::Ref<'static, Uuid, Timer> {
-        if !TIMERS.contains_key(&timer_id) {
-            Timer::make_timer(timer_id);
-        }
-        TIMERS.get(&timer_id).unwrap()
+        let ret = TIMERS
+            .entry(timer_id)
+            .or_insert_with(|| Timer::make_timer(timer_id));
+        ret.downgrade()
     }
     /// timers are light weight enough that they just exist until the next time the server bounces
     pub fn get_mut(timer_id: Uuid) -> dashmap::mapref::one::RefMut<'static, Uuid, Timer> {
-        if !TIMERS.contains_key(&timer_id) {
-            Timer::make_timer(timer_id);
-        }
-        TIMERS.get_mut(&timer_id).unwrap()
+        let ret = TIMERS
+            .entry(timer_id)
+            .or_insert_with(|| Timer::make_timer(timer_id));
+        ret
     }
 
     pub fn for_running_timers<T>(mut f: T)
@@ -77,15 +83,13 @@ impl Timer {
             .for_each(|t| f(&t));
     }
 
-    fn make_timer(timer_id: Uuid) {
+    fn make_timer(timer_id: Uuid) -> Timer {
         let (tx, mut rx) = async_broadcast::broadcast(100);
         let new_timer = Timer {
             timer_id: timer_id.clone(),
             event_sender: tx,
             tournament: None,
         };
-        TIMERS.insert(timer_id, new_timer);
-
         // start a thread to do the broadcasting
         tokio::spawn(async move {
             loop {
@@ -93,17 +97,16 @@ impl Timer {
                 match message {
                     Err(e) => match e {
                         async_broadcast::RecvError::Overflowed(_) => {
-                            info!("Unexpected error on channel: {e}")
+                            info!("Overflow on channel: {e}")
                         }
                         async_broadcast::RecvError::Closed => {
-                            // the channel is closed, this tournament has ended
-                            break;
+                            panic!("Timer channel is closed! Should stay open");
                         }
                     },
 
                     Ok((message, from_device_id)) => {
                         let notification = Arc::new(match &message {
-                            TournamentMessage::Hello => Notification {
+                            TournamentMessage::Started => Notification {
                                 title: "Hello".to_string(),
                                 body: "Notifications are on".to_string(),
                             },
@@ -128,16 +131,20 @@ impl Timer {
                                 body: "Tournament settings have changed".to_string(),
                             },
                             // this doesnt result in a notification
-                            TournamentMessage::Goodbye => Notification {
+                            TournamentMessage::Ended => Notification {
                                 title: "Update".to_string(),
                                 body: "Tournament has been terminated".to_string(),
                             },
+                            TournamentMessage::OneMinuteWarning => Notification {
+                                title: "Update".to_string(),
+                                body: "Take your seats! One minute till CIA".to_string(),
+                            },
                             // this doesnt result in a notification
-                            TournamentMessage::SubscriptionChange(_) => continue,
+                            TournamentMessage::NotificationChange(_) => continue,
                         });
                         let subscriptions = match &Timer::get(timer_id).tournament {
                             Some(tournament) => tournament.subscriptions.clone(),
-                            None => break,
+                            None => continue,
                         };
 
                         futures::future::join_all(
@@ -156,13 +163,14 @@ impl Timer {
                 }
             }
         });
+        new_timer
     }
 
     pub fn make_tournament(&mut self, structure_name: String) -> Result<(), ServerFnError> {
         if self.tournament.is_none() {
             let tournament = Tournament::new(self, structure_name)?;
             self.tournament = Some(tournament);
-            (&*self).broadcast(None, TournamentMessage::Hello);
+            (&*self).broadcast(None, TournamentMessage::Started);
         }
         Ok(())
     }
@@ -173,7 +181,7 @@ impl Timer {
     ) -> Result<(), ServerFnErrorErr> {
         let tournament = Tournament::from_storage(self, storage)?;
         self.tournament = Some(tournament);
-        (&*self).broadcast(None, TournamentMessage::Hello);
+        (&*self).broadcast(None, TournamentMessage::Started);
         Ok(())
     }
 
@@ -196,7 +204,7 @@ impl Timer {
                 tournament.subscriptions.remove(&device_id);
                 tournament.subscriptions.insert(device_id, payload);
                 info!("Device {} is subscribed.", device_id);
-                self.broadcast(None, TournamentMessage::SubscriptionChange(device_id));
+                self.broadcast(None, TournamentMessage::NotificationChange(device_id));
             }
             None => {}
         }
@@ -209,7 +217,7 @@ impl Timer {
                 info!("Device {} is unsubscribed.", payload.device_id);
                 self.broadcast(
                     None,
-                    TournamentMessage::SubscriptionChange(payload.device_id),
+                    TournamentMessage::NotificationChange(payload.device_id),
                 );
             }
             None => {}
@@ -228,7 +236,7 @@ impl Timer {
             LevelUpResult::Invalid => false,
             LevelUpResult::Done => {
                 self.tournament = None;
-                (&*self).broadcast(None, TournamentMessage::Goodbye);
+                (&*self).broadcast(None, TournamentMessage::Ended);
                 true
             }
             LevelUpResult::Ok => {
@@ -242,7 +250,7 @@ impl Timer {
 
     fn terminate(&mut self) {
         self.tournament = None;
-        (&*self).broadcast(None, TournamentMessage::Goodbye);
+        (&*self).broadcast(None, TournamentMessage::Ended);
     }
 
     pub fn to_timer_comp_state(&self, device: &Uuid) -> TimerCompState {
@@ -295,7 +303,6 @@ impl Timer {
             }
         }
     }
-    
 }
 
 pub struct Tournament {
@@ -378,30 +385,43 @@ impl Tournament {
         mut rx: async_broadcast::Receiver<(TournamentMessage, Option<Uuid>)>,
     ) {
         // start a thread to do the level changes
-        // TODO - give a one minute warning before end of break
         tokio::spawn(async move {
+            // have we given the one minute warning for the break yet
+            let mut gave_warning = false;
             loop {
                 {
                     let time = match &Timer::get(timer_id).tournament {
-                        Some(tournament) => std::time::Duration::from_millis(
-                            tournament.clock_state.remaining().num_milliseconds() as u64,
-                        ),
-                        _ => {
+                        None => {
                             // the tournament ended
                             break;
+                        }
+                        Some(tournament) => {
+                            let r = tournament.clock_state.remaining();
+                            match tournament.structure.get_level(tournament.level) {
+                                Level::Break { .. } => {
+                                    if !gave_warning {
+                                        // wait util < a minute left to give the warning
+                                        r.checked_sub(&Duration::seconds(59))
+                                            .unwrap_or(Duration::zero())
+                                    } else {
+                                        r
+                                    }
+                                }
+                                _ => r,
+                            }
                         }
                     };
                     // wait until the time has elapsed, or a message that changed the state of the
                     // tournament occurred.
                     tokio::select! {
-                        _ = sleep(time) => {},
+                        _ = sleep(std::time::Duration::from_millis(time.num_milliseconds() as u64)) => {},
                         _ = rx.recv() => {}
                     }
                 }
 
                 {
                     let mut timer = Timer::get_mut(timer_id);
-                    match &mut timer.tournament {
+                    match &timer.tournament {
                         None => {
                             // the tournament ended
                             break;
@@ -409,8 +429,19 @@ impl Tournament {
                         Some(tournament) => {
                             if tournament.clock_state.remaining().num_seconds() < 2 {
                                 let done = timer.level_up(1);
+                                gave_warning = false;
                                 if done {
                                     break;
+                                }
+                            } else if let Level::Break { .. } =
+                                tournament.structure.get_level(tournament.level)
+                            {
+                                // maybe give one minute warning
+                                if !gave_warning
+                                    && (tournament.clock_state.remaining() < Duration::minutes(1))
+                                {
+                                    gave_warning = true;
+                                    timer.broadcast(None, TournamentMessage::OneMinuteWarning);
                                 }
                             }
                         }
@@ -418,8 +449,6 @@ impl Tournament {
                 }
             }
             info!("Deleting tournament {timer_id}");
-            // FIXME - where should we delete these (or just let them sit?)
-            // TIMERS.remove(&timer_id);
         });
     }
 
@@ -559,11 +588,15 @@ pub async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocke
          x = channel.recv() => {
             match x {
                 Ok((tm, _sender)) => {
-                    if let TournamentMessage::SubscriptionChange(changing_device) = tm {
+                    if let TournamentMessage::NotificationChange(changing_device) = tm {
                         // this only changes the state of the device that is changing its subscription
                         if changing_device != device_id {
                             continue;
                         }
+                    }
+                    if let TournamentMessage::OneMinuteWarning = tm {
+                        // this doesn't change the state, only gives a notification elsewhere
+                        continue;
                     }
                     if let TournamentMessage::LevelUp(_) = tm {
                         let message = JsonSerdeWasmCodec::encode(&DeviceMessage::Beep).expect("Couldn't encode");
