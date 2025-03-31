@@ -55,12 +55,36 @@ impl Level {
             Self::Blinds { game, .. } => game,
             Self::Limit { game, .. } => game,
             Self::Stud { game, .. } => game,
-            Self::Break { .. } => "BREAK",
+            Self::Break { .. } => "",
             Self::Done => "FINISHED",
         }
     }
 
-    pub fn make_display_string(&self) -> String {
+    // the string that we display in "next level" and in level up notifications
+    pub fn short_level_string(&self) -> String {
+        match self {
+            Level::Blinds {
+                game, small, big, ante, ..
+            } => format!["{game} {small} / {big} / {ante}"],
+            Level::Limit { game, small, big, .. } => format!["{game} {small} / {big}  Big Bet: {}", big * 2],
+            Level::Break { duration } => {
+                let min = duration.num_minutes();
+                format!["{min} MINUTE BREAK"]
+            }
+            Level::Done => "FINISHED".to_string(),
+            Level::Stud {
+                ante,
+                bring_in,
+                small,
+                big,
+                game,
+                ..
+            } => format!("{game} Ante: {ante} Bring: {bring_in} Small: {small} Big: {big}"),
+        }
+    }
+
+    // the string that we display on the main timer (the game is displayed above it)
+    pub fn make_level_string(&self) -> String {
         match self {
             Level::Blinds {
                 small, big, ante, ..

@@ -480,8 +480,8 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                             .into_any()
                     }
                     TimerCompState::Running { state, subscribed } => {
-                        let next_display_string = state.next.make_display_string();
-                        let cur_display_string = state.cur.make_display_string();
+                        let next_display_string = state.next.short_level_string();
+                        let cur_display_string = state.cur.make_level_string();
                         let timer_name = timer_name.clone();
 
                         view! {
@@ -501,8 +501,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                                 <Clock state=state.clock />
                             </div>
                             <div class="next-level">
-                                "Next Level: " {state.cur.game().to_string()} " "
-                                {next_display_string}
+                                "Next Level: " {next_display_string}
                             </div>
                             <p style:text-align="center">
                                 <img src=format!("/{timer_id}/qr/{encoded_name}") />
