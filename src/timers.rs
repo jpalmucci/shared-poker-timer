@@ -52,10 +52,16 @@ pub struct Timer {
 impl Timer {
     /// timers are light weight enough that they just exist until the next time the server bounces
     pub fn get(timer_id: Uuid) -> dashmap::mapref::one::Ref<'static, Uuid, Timer> {
-        let ret = TIMERS
-            .entry(timer_id)
-            .or_insert_with(|| Timer::make_timer(timer_id));
-        ret.downgrade()
+        match TIMERS.get(&timer_id) {
+            // the happy path, where no write lock is needed
+            Some(x) => x,
+            None => {
+                let ret = TIMERS
+                    .entry(timer_id)
+                    .or_insert_with(|| Timer::make_timer(timer_id));
+                 ret.downgrade()
+            }
+        }
     }
     /// timers are light weight enough that they just exist until the next time the server bounces
     pub fn get_mut(timer_id: Uuid) -> dashmap::mapref::one::RefMut<'static, Uuid, Timer> {
@@ -139,8 +145,18 @@ impl Timer {
                                 title: "Update".to_string(),
                                 body: "Take your seats! One minute till CIA".to_string(),
                             },
-                            // this doesnt result in a notification
-                            TournamentMessage::NotificationChange(_) => continue,
+                            // this doesnt result in a notification except for the device that is
+                            // turning on the notification
+                            TournamentMessage::NotificationChange(device_id) => {
+                                if let Some(subscription) = Timer::get(timer_id).subscription(device_id) {
+                                    send_notification(subscription, Arc::new(
+                                        Notification {
+                                            title: "Update".to_string(),
+                                            body: "Notifications are on.".to_string(),
+                                    })).await;
+                                }
+                                continue
+                            }
                         });
                         let subscriptions = match &Timer::get(timer_id).tournament {
                             Some(tournament) => tournament.subscriptions.clone(),
@@ -164,6 +180,13 @@ impl Timer {
             }
         });
         new_timer
+    }
+
+    pub fn subscription(&self, device_id : &Uuid) -> Option<&Subscription> {
+        match &self.tournament {
+            Some(tournament) => tournament.subscriptions.get(device_id),
+            None => None,
+        }
     }
 
     pub fn make_tournament(&mut self, structure_name: String) -> Result<(), ServerFnError> {

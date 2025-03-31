@@ -66,7 +66,10 @@ impl Level {
                 small, big, ante, ..
             } => format!["{small} / {big} / {ante}"],
             Level::Limit { small, big, .. } => format!["{small} / {big}  Big Bet: {}", big * 2],
-            Level::Break { duration } => format!["{duration} BREAK"],
+            Level::Break { duration } => {
+                let min = duration.num_minutes();
+                format!["{min} MINUTE BREAK"]
+            }
             Level::Done => "FINISHED".to_string(),
             Level::Stud {
                 ante,
