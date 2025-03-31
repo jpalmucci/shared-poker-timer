@@ -59,7 +59,7 @@ impl Timer {
                 let ret = TIMERS
                     .entry(timer_id)
                     .or_insert_with(|| Timer::make_timer(timer_id));
-                 ret.downgrade()
+                ret.downgrade()
             }
         }
     }
@@ -111,70 +111,69 @@ impl Timer {
                     },
 
                     Ok((message, from_device_id)) => {
-                        let notification = Arc::new(match &message {
-                            TournamentMessage::Started => Notification {
-                                title: "Hello".to_string(),
-                                body: "Notifications are on".to_string(),
-                            },
+                        if let Some(ref tournament) = Timer::get(timer_id).tournament {
+                            let notification = match &message {
+                                TournamentMessage::Started => Notification {
+                                    title: "Hello".to_string(),
+                                    body: "Notifications are on".to_string(),
+                                },
 
-                            TournamentMessage::Pause => Notification {
-                                title: "Update".to_string(),
-                                body: "Tournament Paused".to_string(),
-                            },
-                            TournamentMessage::Resume => Notification {
-                                title: "Update".to_string(),
-                                body: "Tournament Resumed".to_string(),
-                            },
-                            TournamentMessage::LevelUp(round_state) => {
-                                let level = round_state.cur.make_display_string();
-                                Notification {
+                                TournamentMessage::Pause => Notification {
                                     title: "Update".to_string(),
-                                    body: format!["Level Up: {level}"],
+                                    body: "Tournament Paused".to_string(),
+                                },
+                                TournamentMessage::Resume => Notification {
+                                    title: "Update".to_string(),
+                                    body: "Tournament Resumed".to_string(),
+                                },
+                                TournamentMessage::LevelUp(round_state) => {
+                                    let level = round_state.cur.make_display_string();
+                                    Notification {
+                                        title: "Update".to_string(),
+                                        body: format!["Level Up: {level}"],
+                                    }
                                 }
-                            }
-                            TournamentMessage::Settings => Notification {
-                                title: "Update".to_string(),
-                                body: "Tournament settings have changed".to_string(),
-                            },
-                            // this doesnt result in a notification
-                            TournamentMessage::Ended => Notification {
-                                title: "Update".to_string(),
-                                body: "Tournament has been terminated".to_string(),
-                            },
-                            TournamentMessage::OneMinuteWarning => Notification {
-                                title: "Update".to_string(),
-                                body: "Take your seats! One minute till CIA".to_string(),
-                            },
-                            // this doesnt result in a notification except for the device that is
-                            // turning on the notification
-                            TournamentMessage::NotificationChange(device_id) => {
-                                if let Some(subscription) = Timer::get(timer_id).subscription(device_id) {
-                                    send_notification(subscription, Arc::new(
-                                        Notification {
-                                            title: "Update".to_string(),
-                                            body: "Notifications are on.".to_string(),
-                                    })).await;
+                                TournamentMessage::Settings => Notification {
+                                    title: "Update".to_string(),
+                                    body: "Tournament settings have changed".to_string(),
+                                },
+                                // this doesnt result in a notification
+                                TournamentMessage::Ended => Notification {
+                                    title: "Update".to_string(),
+                                    body: "Tournament has been terminated".to_string(),
+                                },
+                                TournamentMessage::OneMinuteWarning => Notification {
+                                    title: "Update".to_string(),
+                                    body: "Take your seats! One minute till CIA".to_string(),
+                                },
+                                TournamentMessage::NotificationChange(device_id) => {
+                                    // this doesnt result in a notification except for the device that is
+                                    // turning on the notification
+                                    if let Some(subscription) =
+                                        Timer::get(timer_id).subscription(device_id)
+                                    {
+                                        send_notification(
+                                            subscription,
+                                            &Notification {
+                                                title: "Update".to_string(),
+                                                body: "Notifications are on.".to_string(),
+                                            },
+                                        )
+                                    }
+                                    continue;
                                 }
-                                continue
-                            }
-                        });
-                        let subscriptions = match &Timer::get(timer_id).tournament {
-                            Some(tournament) => tournament.subscriptions.clone(),
-                            None => continue,
-                        };
-
-                        futures::future::join_all(
-                            subscriptions
+                            };
+                            tournament
+                                .subscriptions
                                 .iter()
                                 .filter(|(device_id, _sub)| match from_device_id {
                                     Some(from_device_id) => **device_id != from_device_id,
                                     None => true,
                                 })
-                                .map(|(_device_id, sub)| {
-                                    send_notification(sub, notification.clone())
-                                }),
-                        )
-                        .await;
+                                .for_each(|(_device_id, sub)| {
+                                    send_notification(sub, &notification)
+                                });
+                        }
                     }
                 }
             }
@@ -182,7 +181,7 @@ impl Timer {
         new_timer
     }
 
-    pub fn subscription(&self, device_id : &Uuid) -> Option<&Subscription> {
+    pub fn subscription(&self, device_id: &Uuid) -> Option<&Subscription> {
         match &self.tournament {
             Some(tournament) => tournament.subscriptions.get(device_id),
             None => None,

@@ -23,7 +23,6 @@ use serde::Serialize;
 use serde_json::json;
 use std::fs;
 use std::io::Cursor;
-use std::sync::Arc;
 use uuid::Uuid;
 use web_push::{
     ContentEncoding, IsahcWebPushClient, SubscriptionInfo, VapidSignatureBuilder, WebPushClient,
@@ -157,7 +156,8 @@ pub struct Notification {
 }
 
 // TODO - make these be clickable to get back to the timer
-pub async fn send_notification(s: &Subscription, notification: Arc<Notification>) -> () {
+/// Asynchronously send a notification in the background
+pub fn send_notification(s: &Subscription, notification: &Notification) -> () {
     let message = serde_json::to_string(&notification).unwrap();
 
     info!("Sending message {:?} {:?}", s, message);
@@ -176,14 +176,17 @@ pub async fn send_notification(s: &Subscription, notification: Arc<Notification>
     builder.set_vapid_signature(sig_builder.build().unwrap());
     let message = builder.build().unwrap();
 
-    match WEB_SEND_CLIENT.send(message).await {
-        Ok(x) => {
-            info!("Message send success: {:?}", x);
+    // don't hang around for the network request.
+    tokio::spawn(async move {
+        match WEB_SEND_CLIENT.send(message).await {
+            Ok(x) => {
+                info!("Message send success: {:?}", x);
+            }
+            Err(e) => {
+                info!("{:?}", e);
+            }
         }
-        Err(e) => {
-            info!("{:?}", e);
-        }
-    }
+    });
 }
 
 pub async fn qr_code(Path((timer_id, timer_name)): Path<(Uuid, String)>) -> impl IntoResponse {

@@ -1,5 +1,8 @@
 #[cfg(feature = "ssr")]
-#[tokio::main]
+// We use current_thread here because this is running on production on a
+// single vcpu box and this makes the dev environment closer to the production
+// one
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     use log::error;
 
