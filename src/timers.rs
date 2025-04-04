@@ -112,39 +112,40 @@ impl Timer {
 
                     Ok((message, from_device_id)) => {
                         if let Some(ref tournament) = Timer::get(timer_id).tournament {
+                            let title = "Poker Timer Update";
                             let notification = match &message {
                                 TournamentMessage::Started => Notification {
-                                    title: "Hello".to_string(),
-                                    body: "Notifications are on".to_string(),
+                                    title: &title,
+                                    body: "Notifications are on",
                                 },
 
                                 TournamentMessage::Pause => Notification {
-                                    title: "Update".to_string(),
-                                    body: "Tournament Paused".to_string(),
+                                    title: &title,
+                                    body: "Tournament Paused",
                                 },
                                 TournamentMessage::Resume => Notification {
-                                    title: "Update".to_string(),
-                                    body: "Tournament Resumed".to_string(),
+                                    title: &title,
+                                    body: "Tournament Resumed",
                                 },
                                 TournamentMessage::LevelUp(round_state) => {
                                     let level = round_state.cur.short_level_string();
                                     Notification {
-                                        title: "Update".to_string(),
-                                        body: format!["Level Up: {level}"],
+                                        title: &title,
+                                        body: &format!("Level Up: {level}"),
                                     }
                                 }
                                 TournamentMessage::Settings => Notification {
-                                    title: "Update".to_string(),
-                                    body: "Tournament settings have changed".to_string(),
+                                    title: &title,
+                                    body: "Tournament settings have changed",
                                 },
                                 // this doesnt result in a notification
                                 TournamentMessage::Ended => Notification {
-                                    title: "Update".to_string(),
-                                    body: "Tournament has been terminated".to_string(),
+                                    title: &title,
+                                    body: "Tournament has been terminated",
                                 },
                                 TournamentMessage::OneMinuteWarning => Notification {
-                                    title: "Update".to_string(),
-                                    body: "Take your seats! One minute till CIA".to_string(),
+                                    title: &title,
+                                    body: "Take your seats! One minute till CIA",
                                 },
                                 TournamentMessage::NotificationChange(device_id) => {
                                     // this doesnt result in a notification except for the device that is
@@ -155,8 +156,8 @@ impl Timer {
                                         send_notification(
                                             subscription,
                                             &Notification {
-                                                title: "Update".to_string(),
-                                                body: "Notifications are on.".to_string(),
+                                                title: &title,
+                                                body: "Notifications are on.",
                                             },
                                         )
                                     }
@@ -219,8 +220,7 @@ impl Timer {
         }
     }
 
-    pub fn subscribe(&mut self, payload: Subscription) {
-        let device_id = payload.device_id;
+    pub fn subscribe(&mut self, device_id: Uuid, payload: Subscription) {
         match &mut self.tournament {
             Some(ref mut tournament) => {
                 tournament.subscriptions.remove(&device_id);
@@ -232,15 +232,12 @@ impl Timer {
         }
     }
 
-    pub fn unsubscribe(&mut self, payload: Subscription) {
+    pub fn unsubscribe(&mut self, device_id: Uuid) {
         match &mut self.tournament {
             Some(ref mut tournament) => {
-                tournament.subscriptions.remove(&payload.device_id);
-                info!("Device {} is unsubscribed.", payload.device_id);
-                self.broadcast(
-                    None,
-                    TournamentMessage::NotificationChange(payload.device_id),
-                );
+                tournament.subscriptions.remove(&device_id);
+                info!("Device {} is unsubscribed.", device_id);
+                self.broadcast(None, TournamentMessage::NotificationChange(device_id));
             }
             None => {}
         }

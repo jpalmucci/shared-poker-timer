@@ -2,6 +2,7 @@
 
 use crate::model::*;
 use codee::string::JsonSerdeCodec;
+use js_sys::{wasm_bindgen::JsCast, JsString, JSON};
 use lazy_regex::regex;
 use leptos::{logging::error, prelude::*, task::spawn_local};
 // https://carloskiki.github.io/icondata/
@@ -14,7 +15,7 @@ use leptos_router::{
 };
 use leptos_use::{
     storage::{use_local_storage_with_options, UseStorageOptions},
-    use_interval, use_websocket_with_options, UseWebSocketOptions,
+    use_interval, use_websocket_with_options, use_window, UseWebSocketOptions,
 };
 use log::info;
 use uuid::Uuid;
@@ -254,6 +255,11 @@ fn HomePage() -> impl IntoView {
 
 use leptos::Params;
 use leptos_router::params::Params;
+use wasm_bindgen_futures::JsFuture;
+use web_sys::{
+    Notification, NotificationPermission, PushManager, PushSubscription,
+    PushSubscriptionOptionsInit, ServiceWorkerRegistration,
+};
 
 #[derive(Params, PartialEq, Clone, Debug)]
 struct TimerPageParams {
@@ -500,27 +506,11 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                             <div class="clock">
                                 <Clock state=state.clock />
                             </div>
-                            <div class="next-level">
-                                "Next Level: " {next_display_string}
-                            </div>
+                            <div class="next-level">"Next Level: " {next_display_string}</div>
                             <p style:text-align="center">
                                 <img src=format!("/{timer_id}/qr/{encoded_name}") />
                             </p>
-                            <p>
-                                <input
-                                    type="checkbox"
-                                    prop:checked=subscribed
-                                    on:input:target=move |evt| {
-                                        evt.prevent_default();
-                                        if evt.target().checked() {
-                                            register_service_worker(device_id, timer_id);
-                                        } else {
-                                            deregister_service_worker(device_id, timer_id);
-                                        }
-                                    }
-                                />
-                                "Notifications"
-                            </p>
+                            <NotificationBox timer_id=timer_id subscribed=subscribed />
                             {match state.clock {
                                 ClockState::Paused { .. } => {
                                     view! {
@@ -607,55 +597,159 @@ pub async fn create_tournament(
     timer.make_tournament(structure_name)
 }
 
-fn register_service_worker(device_id: Uuid, timer_id: Uuid) {
-    use js_sys::eval;
-    let result = eval(&format!(
-        "if ('serviceWorker' in navigator) {{
-            navigator.serviceWorker.register('/service-worker.js')
-            .then(registration => {{
-                console.log('Service Worker registered:', registration);
-                return registration.pushManager.subscribe({{
-                    userVisibleOnly: true,
-                    applicationServerKey: 'BM7EadIlCgfqJABkpI9L0OsbkyZfL1BnEzjBlYpPAoZt-kDpByG3waoERsCLofkeqRsFBRfbgdJ7ccbSb_oxBf8'
-                }});
-             }}).then(subscription => {{
-                fetch('/{timer_id}/subscribe', {{
-                    method: 'POST',
-                    body: JSON.stringify({{'device_id': '{device_id}', ...subscription.toJSON() }}),
-                    headers: {{ 'Content-Type': 'application/json' }}
-                    }});
-
-            }})
-            .catch(error => {{
-                console.error('Service Worker registration failed:', error);
-            }});
-        }}"));
-    if let Err(e) = result {
-        error!("{e:?}");
-    };
+#[component]
+fn NotificationBox(timer_id: Uuid, subscribed: bool) -> impl IntoView {
+    let device_id = get_device_id();
+    let notifications_available =
+        LocalResource::new(|| async { pwa_notification_supported().await });
+    if notifications_available.get().is_some_and(|v| *v) {
+        view! {
+            <p>
+                <input
+                    type="checkbox"
+                    prop:checked=subscribed
+                    on:input:target=move |evt| {
+                        evt.prevent_default();
+                        if evt.target().checked() {
+                            spawn_local(async move {
+                                start_notifications(device_id, timer_id).await.unwrap();
+                            });
+                        } else {
+                            spawn_local(async move {
+                                stop_notifications(device_id, timer_id).await;
+                            })
+                        }
+                    }
+                />
+                "Notifications"
+            </p>
+        }
+        .into_any()
+    } else {
+        view! {}.into_any()
+    }
 }
 
-fn deregister_service_worker(device_id: Uuid, timer_id: Uuid) {
-    use js_sys::eval;
-    let result = eval(&format!(
-        "if ('serviceWorker' in navigator) {{
-            navigator.serviceWorker.getRegistration().then((reg) =>
-            reg.pushManager.getSubscription().then((subscription) => {{
-                fetch('/{timer_id}/unsubscribe', {{
-                    method: 'POST',
-                    body: JSON.stringify({{'device_id': '{device_id}', ...subscription.toJSON() }}),
-                    headers: {{ 'Content-Type': 'application/json' }},
-                }});
-                subscription.unsubscribe();
-            }})
-            );
-       }}
-        "
-    ));
-    if let Err(e) = result {
-        error!("{e:?}");
-    };
+async fn pwa_notification_supported() -> bool {
+    get_push_manager().await.is_some()
 }
+
+async fn get_push_manager() -> Option<PushManager> {
+    let window = use_window();
+    match &*window {
+        None => None,
+        Some(window) => {
+            let sw = window.navigator().service_worker();
+
+            if sw.is_undefined() {
+                error!("Service Worker Undefined");
+                return None;
+            }
+
+            let reg = JsFuture::from(sw.register("/service-worker.js")).await;
+            if let Err(e) = reg {
+                error!("No server worker {e:?}");
+                return None;
+            }
+            let registration: ServiceWorkerRegistration =
+                reg.unwrap().dyn_into().expect("Expecting registration");
+            match Notification::permission() {
+                NotificationPermission::Default => {
+                    let result: JsString = JsFuture::from(
+                        Notification::request_permission().expect("Failed permission request"),
+                    )
+                    .await
+                    .unwrap()
+                    .dyn_into()
+                    .unwrap();
+                    if result != "granted" {
+                        return None;
+                    }
+                }
+                NotificationPermission::Denied => {
+                    return None;
+                }
+                _ => {}
+            }
+            let pm = registration.push_manager();
+            match pm {
+                Err(e) => {
+                    error!("No Push Manager {e:?}");
+                    return None;
+                }
+                Ok(pm) => {
+                    return Some(pm);
+                }
+            }
+        }
+    }
+}
+
+async fn start_notifications(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
+    match get_push_manager().await {
+        None => Err(ServerFnError::new("No push manager")),
+        Some(pm) => {
+            let options = PushSubscriptionOptionsInit::new();
+            options.set_user_visible_only(true);
+            options.set_application_server_key(&JsString::from(
+                "BM7EadIlCgfqJABkpI9L0OsbkyZfL1BnEzjBlYpPAoZt-kDpByG3waoERsCLofkeqRsFBRfbgdJ7ccbSb_oxBf8",
+            ));
+            let subscription: PushSubscription =
+                JsFuture::from(pm.subscribe_with_options(&options).unwrap())
+                    .await
+                    .unwrap()
+                    .dyn_into()
+                    .unwrap();
+            let json: String = JSON::stringify(&subscription.to_json().unwrap().into())
+                .unwrap()
+                .into();
+            add_subscription(device_id, timer_id, json).await
+        }
+    }
+}
+
+#[server]
+pub async fn add_subscription(
+    device_id: Uuid,
+    timer_id: Uuid,
+    subscription: String,
+) -> Result<(), ServerFnError> {
+    use crate::backend::Subscription;
+    use crate::timers::Timer;
+    let subscription = serde_json::from_str::<Subscription>(&subscription)?;
+    let mut t = Timer::get_mut(timer_id);
+    t.subscribe(device_id, subscription);
+    Ok(())
+}
+
+async fn stop_notifications(device_id: Uuid, timer_id: Uuid) {
+    match get_push_manager().await {
+        None => error!("No push manager to deregister"),
+
+        Some(pm) => {
+            let subscription: PushSubscription = JsFuture::from(pm.get_subscription().unwrap())
+                .await
+                .unwrap()
+                .dyn_into()
+                .unwrap();
+            JsFuture::from(subscription.unsubscribe().expect("Couldn't unsubscribe"))
+                .await
+                .expect("Couldn't unsubscribe");
+            remove_subscription(device_id, timer_id)
+                .await
+                .expect("Couldn't remove subscription");
+        }
+    }
+}
+
+#[server]
+pub async fn remove_subscription(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
+    use crate::timers::Timer;
+    let mut t = Timer::get_mut(timer_id);
+    t.unsubscribe(device_id);
+    Ok(())
+}
+
 pub fn beep() {
     use js_sys::eval;
     let result = eval(&format!(

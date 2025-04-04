@@ -5,14 +5,10 @@ use crate::app::App;
 use crate::persistence::load_saved;
 use crate::persistence::save_running;
 use crate::timers::handle_socket;
-use crate::timers::Timer;
-use axum::extract;
 use axum::extract::Path;
 use axum::extract::WebSocketUpgrade;
 use axum::http::header;
-use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::routing::post;
 use axum::Json;
 use image::Luma;
 use log::{error, info};
@@ -56,8 +52,6 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .route("/:timer_id/qr/:timer_name", get(qr_code))
         .route("/:timer_id/ws/:device_id", any(websocket_handler))
-        .route("/:timer_id/subscribe", post(subscribe))
-        .route("/:timer_id/unsubscribe", post(unsubscribe))
         .route("/:timer_id/:timer_name/manifest.json", get(manifest))
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
@@ -131,7 +125,6 @@ pub async fn websocket_handler(
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Subscription {
-    pub device_id: Uuid,
     pub endpoint: String,
     pub keys: SubscriptionKeys,
 }
@@ -150,9 +143,9 @@ pub static NOTIFY_KEY: Lazy<String> = Lazy::new(|| {
 });
 
 #[derive(Serialize)]
-pub struct Notification {
-    pub title: String,
-    pub body: String,
+pub struct Notification<'a> {
+    pub title: &'a str,
+    pub body: &'a str,
 }
 
 // TODO - make these be clickable to get back to the timer
@@ -199,24 +192,6 @@ pub async fn qr_code(Path((timer_id, timer_name)): Path<(Uuid, String)>) -> impl
 
     // Return as a PNG image response
     ([(header::CONTENT_TYPE, "image/png")], buf.into_inner())
-}
-
-pub async fn subscribe(
-    Path(timer_id): Path<Uuid>,
-    extract::Json(payload): extract::Json<Subscription>,
-) -> impl IntoResponse {
-    let mut t = Timer::get_mut(timer_id);
-    t.subscribe(payload);
-    return (StatusCode::OK, "ok".to_string());
-}
-
-pub async fn unsubscribe(
-    Path(timer_id): Path<Uuid>,
-    extract::Json(payload): extract::Json<Subscription>,
-) -> Result<String, StatusCode> {
-    let mut t = Timer::get_mut(timer_id);
-    t.unsubscribe(payload);
-    Ok("ok".to_string())
 }
 
 pub async fn manifest(Path((timer_id, timer_name)): Path<(Uuid, String)>) -> impl IntoResponse {

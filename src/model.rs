@@ -64,9 +64,15 @@ impl Level {
     pub fn short_level_string(&self) -> String {
         match self {
             Level::Blinds {
-                game, small, big, ante, ..
+                game,
+                small,
+                big,
+                ante,
+                ..
             } => format!["{game} {small} / {big} / {ante}"],
-            Level::Limit { game, small, big, .. } => format!["{game} {small} / {big}  Big Bet: {}", big * 2],
+            Level::Limit {
+                game, small, big, ..
+            } => format!["{game} {small} / {big}  Big Bet: {}", big * 2],
             Level::Break { duration } => {
                 let min = duration.num_minutes();
                 format!["{min} MINUTE BREAK"]
