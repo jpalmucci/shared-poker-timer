@@ -2,12 +2,12 @@
 
 use crate::model::*;
 use codee::string::JsonSerdeCodec;
-use js_sys::{wasm_bindgen::JsCast, JsString, JSON};
+use js_sys::{Promise, JSON};
 use lazy_regex::regex;
-use leptos::{logging::error, prelude::*, task::spawn_local};
+use leptos::{prelude::*, task::spawn_local};
 // https://carloskiki.github.io/icondata/
 use leptos_icons::Icon;
-use leptos_meta::{provide_meta_context, Link, MetaTags, Stylesheet, Title};
+use leptos_meta::{provide_meta_context, Link, MetaTags, Script, Stylesheet, Title};
 use leptos_router::{
     components::{Route, Router, Routes},
     hooks::{use_navigate, use_params},
@@ -15,10 +15,16 @@ use leptos_router::{
 };
 use leptos_use::{
     storage::{use_local_storage_with_options, UseStorageOptions},
-    use_interval, use_websocket_with_options, use_window, UseWebSocketOptions,
+    use_interval, use_websocket_with_options, UseWebSocketOptions,
 };
-use log::info;
+use log::{error, info};
 use uuid::Uuid;
+
+use leptos::Params;
+use leptos_router::params::Params;
+use wasm_bindgen::{prelude::wasm_bindgen, JsCast};
+use wasm_bindgen_futures::JsFuture;
+use web_sys::{js_sys::JsString, PushManager, PushSubscription, PushSubscriptionOptionsInit};
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -62,6 +68,7 @@ pub fn App() -> impl IntoView {
         // injects a stylesheet into the document <head>
         // id=leptos means cargo-leptos will hot-reload this stylesheet
         <Stylesheet id="leptos" href="/pkg/pokertimer.css" />
+        <Script src="utils.js"/>
 
         // content for this welcome page
         <Router>
@@ -253,14 +260,6 @@ fn HomePage() -> impl IntoView {
     }
 }
 
-use leptos::Params;
-use leptos_router::params::Params;
-use wasm_bindgen_futures::JsFuture;
-use web_sys::{
-    Notification, NotificationPermission, PushManager, PushSubscription,
-    PushSubscriptionOptionsInit, ServiceWorkerRegistration,
-};
-
 #[derive(Params, PartialEq, Clone, Debug)]
 struct TimerPageParams {
     timer_id: Option<Uuid>,
@@ -426,7 +425,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
             };
         }
     });
-    let structures = Resource::new(|| (), |_| structure_names());
+    let structures = LocalResource::new(|| structure_names());
     let selected_structure = RwSignal::new("Nightly NLHE".to_string());
 
     view! {
@@ -451,7 +450,10 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                                     on:submit=move |ev| {
                                         ev.prevent_default();
                                         spawn_local(async move {
-                                            create_tournament(timer_id, selected_structure.get())
+                                            create_tournament(
+                                                    timer_id,
+                                                    selected_structure.get_untracked(),
+                                                )
                                                 .await
                                                 .unwrap();
                                         });
@@ -467,15 +469,24 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                                                 selected_structure.set(v);
                                             }
                                         >
-                                            {if let Some(Ok(x)) = structures.get() {
+                                            {move || {
+                                                match structures.get() {
+                                                    None => Vec::new(),
+                                                    Some(x) => {
+                                                        match x.as_borrowed() {
+                                                            Err(_) => Vec::new(),
+                                                            Ok(x) => {
                                                 x.iter()
                                                     .map(|name| {
                                                         view! { <option value=name.clone()>{name.clone()}</option> }
                                                     })
                                                     .collect_view()
-                                            } else {
-                                                Vec::new()
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }}
+
                                         </select>
                                     </div>
                                     <button type="submit">Start</button>
@@ -602,7 +613,10 @@ fn NotificationBox(timer_id: Uuid, subscribed: bool) -> impl IntoView {
     let device_id = get_device_id();
     let notifications_available =
         LocalResource::new(|| async { pwa_notification_supported().await });
+    view! {
+        {move || {
     if notifications_available.get().is_some_and(|v| *v) {
+                Some(
         view! {
             <p>
                 <input
@@ -623,10 +637,12 @@ fn NotificationBox(timer_id: Uuid, subscribed: bool) -> impl IntoView {
                 />
                 "Notifications"
             </p>
-        }
-        .into_any()
+                    },
+                )
     } else {
-        view! {}.into_any()
+                None
+            }
+        }}
     }
 }
 
@@ -634,54 +650,18 @@ async fn pwa_notification_supported() -> bool {
     get_push_manager().await.is_some()
 }
 
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen]
+    fn requestPushManager() -> Promise;
+    #[wasm_bindgen]
+    fn startNotifications(device_id: String, timer_id: String) -> Promise;
+}
+
 async fn get_push_manager() -> Option<PushManager> {
-    let window = use_window();
-    match &*window {
-        None => None,
-        Some(window) => {
-            let sw = window.navigator().service_worker();
-
-            if sw.is_undefined() {
-                error!("Service Worker Undefined");
-                return None;
-            }
-
-            let reg = JsFuture::from(sw.register("/service-worker.js")).await;
-            if let Err(e) = reg {
-                error!("No server worker {e:?}");
-                return None;
-            }
-            let registration: ServiceWorkerRegistration =
-                reg.unwrap().dyn_into().expect("Expecting registration");
-            match Notification::permission() {
-                NotificationPermission::Default => {
-                    let result: JsString = JsFuture::from(
-                        Notification::request_permission().expect("Failed permission request"),
-                    )
-                    .await
-                    .unwrap()
-                    .dyn_into()
-                    .unwrap();
-                    if result != "granted" {
-                        return None;
-                    }
-                }
-                NotificationPermission::Denied => {
-                    return None;
-                }
-                _ => {}
-            }
-            let pm = registration.push_manager();
-            match pm {
-                Err(e) => {
-                    error!("No Push Manager {e:?}");
-                    return None;
-                }
-                Ok(pm) => {
-                    return Some(pm);
-                }
-            }
-        }
+    match JsFuture::from(requestPushManager()).await {
+        Ok(v) => Some(v.dyn_into().unwrap()),
+        Err(_) => None,
     }
 }
 
@@ -727,6 +707,9 @@ async fn stop_notifications(device_id: Uuid, timer_id: Uuid) {
         None => error!("No push manager to deregister"),
 
         Some(pm) => {
+            remove_subscription(device_id, timer_id)
+                .await
+                .expect("Couldn't remove subscription");
             let subscription: PushSubscription = JsFuture::from(pm.get_subscription().unwrap())
                 .await
                 .unwrap()
@@ -735,9 +718,6 @@ async fn stop_notifications(device_id: Uuid, timer_id: Uuid) {
             JsFuture::from(subscription.unsubscribe().expect("Couldn't unsubscribe"))
                 .await
                 .expect("Couldn't unsubscribe");
-            remove_subscription(device_id, timer_id)
-                .await
-                .expect("Couldn't remove subscription");
         }
     }
 }
