@@ -22,9 +22,8 @@ use uuid::Uuid;
 
 use leptos::Params;
 use leptos_router::params::Params;
-use wasm_bindgen::{prelude::wasm_bindgen, JsCast};
+use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{js_sys::JsString, PushManager, PushSubscription, PushSubscriptionOptionsInit};
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -68,7 +67,7 @@ pub fn App() -> impl IntoView {
         // injects a stylesheet into the document <head>
         // id=leptos means cargo-leptos will hot-reload this stylesheet
         <Stylesheet id="leptos" href="/pkg/pokertimer.css" />
-        <Script src="utils.js"/>
+        <Script src="/utils.js" />
 
         // content for this welcome page
         <Router>
@@ -476,11 +475,11 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                                                         match x.as_borrowed() {
                                                             Err(_) => Vec::new(),
                                                             Ok(x) => {
-                                                x.iter()
-                                                    .map(|name| {
-                                                        view! { <option value=name.clone()>{name.clone()}</option> }
-                                                    })
-                                                    .collect_view()
+                                                                x.iter()
+                                                                    .map(|name| {
+                                                                        view! { <option value=name.clone()>{name.clone()}</option> }
+                                                                    })
+                                                                    .collect_view()
                                                             }
                                                         }
                                                     }
@@ -615,31 +614,37 @@ fn NotificationBox(timer_id: Uuid, subscribed: bool) -> impl IntoView {
         LocalResource::new(|| async { pwa_notification_supported().await });
     view! {
         {move || {
-    if notifications_available.get().is_some_and(|v| *v) {
+            if notifications_available.get().is_some_and(|v| *v) {
                 Some(
-        view! {
-            <p>
-                <input
-                    type="checkbox"
-                    prop:checked=subscribed
-                    on:input:target=move |evt| {
-                        evt.prevent_default();
-                        if evt.target().checked() {
-                            spawn_local(async move {
-                                start_notifications(device_id, timer_id).await.unwrap();
-                            });
-                        } else {
-                            spawn_local(async move {
-                                stop_notifications(device_id, timer_id).await;
-                            })
-                        }
-                    }
-                />
-                "Notifications"
-            </p>
+                    view! {
+                        <p>
+                            <input
+                                type="checkbox"
+                                prop:checked=subscribed
+                                on:click:target=move |evt| {
+                                    evt.prevent_default();
+                                    if evt.target().checked() {
+                                        spawn_local(async move {
+                                            match start_notifications(device_id, timer_id).await {
+                                                Ok(_) => {}
+                                                Err(e) => error!("Couldn't start_notification: {:?}", e),
+                                            }
+                                        });
+                                    } else {
+                                        spawn_local(async move {
+                                            match stop_notifications(device_id, timer_id).await {
+                                                Ok(_) => {}
+                                                Err(e) => error!("Couldn't start_notification: {:?}", e),
+                                            }
+                                        })
+                                    }
+                                }
+                            />
+                            "Notifications"
+                        </p>
                     },
                 )
-    } else {
+            } else {
                 None
             }
         }}
@@ -647,44 +652,34 @@ fn NotificationBox(timer_id: Uuid, subscribed: bool) -> impl IntoView {
 }
 
 async fn pwa_notification_supported() -> bool {
-    get_push_manager().await.is_some()
+    let result = JsFuture::from(notificationsSupported()).await;
+    match result {
+        Ok(v) => v.as_bool().unwrap(),
+        Err(e) =>  {
+            error!("Couldn't determine notification support");
+            false
+        },
+    }
 }
 
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen]
-    fn requestPushManager() -> Promise;
+    fn notificationsSupported() -> Promise;
     #[wasm_bindgen]
-    fn startNotifications(device_id: String, timer_id: String) -> Promise;
-}
-
-async fn get_push_manager() -> Option<PushManager> {
-    match JsFuture::from(requestPushManager()).await {
-        Ok(v) => Some(v.dyn_into().unwrap()),
-        Err(_) => None,
-    }
+    fn startNotifications() -> Promise;
+    #[wasm_bindgen]
+    fn stopNotifications() -> Promise;
 }
 
 async fn start_notifications(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
-    match get_push_manager().await {
-        None => Err(ServerFnError::new("No push manager")),
-        Some(pm) => {
-            let options = PushSubscriptionOptionsInit::new();
-            options.set_user_visible_only(true);
-            options.set_application_server_key(&JsString::from(
-                "BM7EadIlCgfqJABkpI9L0OsbkyZfL1BnEzjBlYpPAoZt-kDpByG3waoERsCLofkeqRsFBRfbgdJ7ccbSb_oxBf8",
-            ));
-            let subscription: PushSubscription =
-                JsFuture::from(pm.subscribe_with_options(&options).unwrap())
-                    .await
-                    .unwrap()
-                    .dyn_into()
-                    .unwrap();
-            let json: String = JSON::stringify(&subscription.to_json().unwrap().into())
-                .unwrap()
-                .into();
-            add_subscription(device_id, timer_id, json).await
-        }
+    let result = JsFuture::from(startNotifications()).await;
+    match result {
+        Err(e) => Err(ServerFnError::new(format!("start_notifications: {:?}", e))),
+        Ok(v) => match JSON::stringify(&v) {
+            Err(e) => Err(ServerFnError::new(format!("start_notifications2: {:?}", e))),
+            Ok(s) => add_subscription(device_id, timer_id, s.into()).await,
+        },
     }
 }
 
@@ -702,23 +697,10 @@ pub async fn add_subscription(
     Ok(())
 }
 
-async fn stop_notifications(device_id: Uuid, timer_id: Uuid) {
-    match get_push_manager().await {
-        None => error!("No push manager to deregister"),
-
-        Some(pm) => {
-            remove_subscription(device_id, timer_id)
-                .await
-                .expect("Couldn't remove subscription");
-            let subscription: PushSubscription = JsFuture::from(pm.get_subscription().unwrap())
-                .await
-                .unwrap()
-                .dyn_into()
-                .unwrap();
-            JsFuture::from(subscription.unsubscribe().expect("Couldn't unsubscribe"))
-                .await
-                .expect("Couldn't unsubscribe");
-        }
+async fn stop_notifications(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
+    match JsFuture::from(stopNotifications()).await {
+        Err(e) => Err(ServerFnError::new(format!("{:?}", e))),
+        Ok(_) => remove_subscription(device_id, timer_id).await,
     }
 }
 
