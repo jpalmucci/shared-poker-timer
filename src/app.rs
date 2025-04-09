@@ -656,7 +656,7 @@ async fn pwa_notification_supported() -> bool {
     match result {
         Ok(v) => v.as_bool().unwrap(),
         Err(e) =>  {
-            error!("Couldn't determine notification support");
+            error!("Couldn't determine notification support: {:?}",e);
             false
         },
     }
@@ -693,6 +693,7 @@ pub async fn add_subscription(
     use crate::timers::Timer;
     let subscription = serde_json::from_str::<Subscription>(&subscription)?;
     let mut t = Timer::get_mut(timer_id);
+    info!("{device_id} subscription: {subscription:?}");
     t.subscribe(device_id, subscription);
     Ok(())
 }
