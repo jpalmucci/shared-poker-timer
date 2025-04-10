@@ -25,6 +25,9 @@ async function requestPushManager() {
 
 async function startNotifications() {
   let pm = await requestPushManager();
+  let cur = await pm.getSubscription();
+  if (cur)
+    await cur.unsubscribe();
   let sub = await pm.subscribe({ userVisibleOnly: true, applicationServerKey: "BM7EadIlCgfqJABkpI9L0OsbkyZfL1BnEzjBlYpPAoZt-kDpByG3waoERsCLofkeqRsFBRfbgdJ7ccbSb_oxBf8" });
   return sub.toJSON();
 };

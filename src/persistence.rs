@@ -9,6 +9,7 @@ use std::{
     io::{BufReader, Write},
 };
 
+use log::error;
 use uuid::Uuid;
 
 use crate::{
@@ -73,18 +74,25 @@ pub fn load_saved() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     let tournaments =
-        serde_json::from_reader::<_, Vec<StoredTournament>>(BufReader::new(fs::File::open(path)?))?;
+        serde_json::from_reader::<_, Vec<StoredTournament>>(BufReader::new(fs::File::open(path)?));
+    match tournaments {
+        Err(e) => {
+            error!("bad timers.json file, punting: {e}");
+        }
+        Ok(tournaments) => {
+            for t in tournaments.into_iter() {
+                let timer_id = t.timer_id;
+                let mut timer = Timer::get_mut(timer_id);
+                timer.make_tournament_from_storage(t)?;
+            }
 
-    for t in tournaments.into_iter() {
-        let timer_id = t.timer_id;
-        let mut timer = Timer::get_mut(timer_id);
-        timer.make_tournament_from_storage(t)?;
+        }
     }
-
     let backpath = std::path::Path::new("./storage/timers.json.backup");
     if backpath.exists() {
         fs::remove_file(backpath)?;
     }
     fs::rename(path, backpath)?;
+
     Ok(())
 }
