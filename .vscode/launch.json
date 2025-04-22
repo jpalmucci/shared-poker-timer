@@ -1,52 +1,61 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "type": "lldb",
-            "request": "attach",
-            "pid": "${command:pickMyProcess}",
-            "name": "Attach to pid",
-          },
-          {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in library 'pokertimer'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--lib",
-                    "--package=pokertimer"
-                ],
-                "filter": {
-                    "name": "pokertimer",
-                    "kind": "lib"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'pokertimer'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=pokertimer",
-                    "--package=pokertimer"
-                ],
-                "filter": {
-                    "name": "pokertimer",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "attach",
+      "pid": "${command:pickMyProcess}",
+      "name": "Attach to pid"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug",
+      "expressions": "simple",
+      "preLaunchTask": "debug-build",
+      "preRunCommands": [
+        // !! change this path if you placed the script somewhere else !!
+        "command script import ${workspaceFolder}/rust-prettifier-for-lldb/rust_prettifier_for_lldb.py"
+      ],
+      "program": "${workspaceFolder}/target/debug/pokertimer",
+      // "cwd": "${workspaceFolder}/target/site",
+      "args": []
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug unit tests in library 'pokertimer'",
+      "cargo": {
+        "args": ["test", "--no-run", "--lib", "--package=pokertimer"],
+        "filter": {
+          "name": "pokertimer",
+          "kind": "lib"
         }
-    ]
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug unit tests in executable 'pokertimer'",
+      "cargo": {
+        "args": [
+          "test",
+          "--no-run",
+          "--bin=pokertimer",
+          "--package=pokertimer"
+        ],
+        "filter": {
+          "name": "pokertimer",
+          "kind": "bin"
+        }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
 }
