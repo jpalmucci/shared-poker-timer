@@ -477,7 +477,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                                                             Ok(x) => {
                                                                 x.iter()
                                                                     .map(|name| {
-                                                                        view! { <option value=name.clone()>{name.clone()}</option> }
+                                                                        view! { <option value=name.clone() selected={name == "Nightly NLHE"}>{name.clone()}</option> }
                                                                     })
                                                                     .collect_view()
                                                             }
@@ -655,10 +655,10 @@ async fn pwa_notification_supported() -> bool {
     let result = JsFuture::from(notificationsSupported()).await;
     match result {
         Ok(v) => v.as_bool().unwrap(),
-        Err(e) =>  {
-            error!("Couldn't determine notification support: {:?}",e);
+        Err(e) => {
+            error!("Couldn't determine notification support: {:?}", e);
             false
-        },
+        }
     }
 }
 

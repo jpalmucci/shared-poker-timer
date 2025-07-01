@@ -480,9 +480,12 @@ impl Tournament {
         if level == &Level::Done {
             return LevelUpResult::Done;
         }
-        let duration = match self.duration_override {
-            Some(duration) => duration,
-            None => level.duration(),
+        let duration = match level {
+            Level::Break { .. } => level.duration(), // Never override break duration
+            _ => match self.duration_override {
+                Some(duration) => duration,
+                None => level.duration(),
+            },
         };
         self.clock_state = match self.clock_state {
             ClockState::Paused { .. } => ClockState::Paused {
@@ -498,30 +501,30 @@ impl Tournament {
 
     fn update_settings(&mut self, duration_override: Option<Duration>) {
         // if the round duration is changing, update the clock_state
-        let level = self.structure.get_level(self.level);
-        let current_duration = match self.duration_override {
-            Some(d) => d,
-            None => level.duration(),
-        };
-        let new_duration = match duration_override {
-            Some(d) => d,
-            None => level.duration(),
-        };
-        let offset = new_duration - current_duration;
-        match self.clock_state {
-            ClockState::Paused { remaining } => {
-                self.clock_state = ClockState::Paused {
-                    remaining: remaining + offset,
-                };
-            }
-            ClockState::Running { remaining, asof } => {
-                self.clock_state = ClockState::Running {
-                    remaining: remaining + offset,
-                    asof,
-                };
+        if duration_override != self.duration_override {
+            self.duration_override = duration_override;
+            let structure = self.structure.get_level(self.level);
+            let duration = if let Level::Break { duration } = structure {
+                duration.clone()
+            } else if let Some(duration) = &duration_override {
+                duration.clone()
+            } else {
+                structure.duration()
+            };
+            match self.clock_state {
+                ClockState::Paused { .. } => {
+                    self.clock_state = ClockState::Paused {
+                        remaining: duration,
+                    };
+                }
+                ClockState::Running { .. } => {
+                    self.clock_state = ClockState::Running {
+                        remaining: duration,
+                        asof: now(),
+                    };
+                }
             }
         }
-        self.duration_override = duration_override;
     }
 
     fn to_roundstate(&self) -> RoundState {

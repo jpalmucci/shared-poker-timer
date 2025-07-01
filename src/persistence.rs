@@ -85,7 +85,6 @@ pub fn load_saved() -> Result<(), Box<dyn std::error::Error>> {
                 let mut timer = Timer::get_mut(timer_id);
                 timer.make_tournament_from_storage(t)?;
             }
-
         }
     }
     let backpath = std::path::Path::new("./storage/timers.json.backup");
