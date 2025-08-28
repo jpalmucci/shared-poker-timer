@@ -21,3 +21,7 @@ In order to get notifications on an iPhone or iPad, you need to add the timer to
 ### Structures
 
 As of now, there is no structure editor. If you want to add a new structure, create an issue on Github (or better yet, a pull request).
+
+## Credits
+
+Icon by https://www.freepik.com/
