@@ -8,6 +8,8 @@ use crate::timers::handle_socket;
 use axum::extract::Path;
 use axum::extract::WebSocketUpgrade;
 use axum::http::header;
+use axum::http::HeaderMap;
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use image::Luma;
@@ -17,8 +19,8 @@ use qrcode::QrCode;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
-use std::fs;
 use std::io::Cursor;
+use std::sync::OnceLock;
 use uuid::Uuid;
 use web_push::{
     ContentEncoding, IsahcWebPushClient, SubscriptionInfo, VapidSignatureBuilder, WebPushClient,
@@ -33,11 +35,17 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Router,
     };
     use axum_server::tls_rustls::RustlsConfig;
-    use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
     use log::info;
     env_logger::init();
+
+    NOTIFY_KEY
+        .set(
+            fs::read_to_string("certs/backend_notification_key.pem")
+                .expect("Couldn't read backend_notification_key.pem"),
+        )
+        .expect("Couldn't set notify key");
 
     let conf = get_configuration(None).unwrap();
     let addr = conf.leptos_options.site_addr;
@@ -77,7 +85,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .unwrap();
     } else {
-        log!("listening on http://{}", &addr);
+        info!("listening on http://{}", &addr);
         axum_server::bind(addr)
             .handle(handle)
             .serve(app)
@@ -137,10 +145,7 @@ pub struct SubscriptionKeys {
 
 static WEB_SEND_CLIENT: Lazy<IsahcWebPushClient> = Lazy::new(|| IsahcWebPushClient::new().unwrap());
 
-pub static NOTIFY_KEY: Lazy<String> = Lazy::new(|| {
-    fs::read_to_string("certs/backend_notification_key.pem")
-        .expect("Couldn't read backend_notification_key.pem")
-});
+pub static NOTIFY_KEY: OnceLock<String> = OnceLock::new();
 
 #[derive(Serialize)]
 pub struct Notification<'a> {
@@ -160,8 +165,14 @@ pub fn send_notification(s: &Subscription, notification: &Notification) -> () {
         s.keys.auth.clone(),
     );
 
-    let sig_builder =
-        VapidSignatureBuilder::from_pem(NOTIFY_KEY.as_bytes(), &subscription_info).unwrap();
+    let sig_builder = VapidSignatureBuilder::from_pem(
+        NOTIFY_KEY
+            .get()
+            .expect("notify_key was not initialized")
+            .as_bytes(),
+        &subscription_info,
+    )
+    .unwrap();
 
     let mut builder = WebPushMessageBuilder::new(&subscription_info);
 
@@ -182,16 +193,24 @@ pub fn send_notification(s: &Subscription, notification: &Notification) -> () {
     });
 }
 
-pub async fn qr_code(Path((timer_id, timer_name)): Path<(Uuid, String)>) -> impl IntoResponse {
+pub async fn qr_code(Path((timer_id, timer_name)): Path<(Uuid, String)>, headers: HeaderMap) -> impl IntoResponse {
+    // Get the Host header
+    let host = if let Some(host) = headers.get("Host")
+        && let Ok(host_str) = host.to_str()
+    {
+        host_str.to_string()
+    } else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Couldn't get host name").into_response();
+    };
     let timer_name = urlencoding::encode(&timer_name);
-    let url = format!("https://pokertimer.palmucci.net/{timer_id}/timer/{timer_name}");
+    let url = format!("https://{host}/{timer_id}/timer/{timer_name}");
     let code = QrCode::new(url).unwrap();
     let image = code.render::<Luma<u8>>().module_dimensions(4, 4).build();
     let mut buf = Cursor::new(Vec::new());
     image.write_to(&mut buf, image::ImageFormat::Png).unwrap();
 
     // Return as a PNG image response
-    ([(header::CONTENT_TYPE, "image/png")], buf.into_inner())
+    ([(header::CONTENT_TYPE, "image/png")], buf.into_inner()).into_response()
 }
 
 pub async fn manifest(Path((timer_id, timer_name)): Path<(Uuid, String)>) -> impl IntoResponse {

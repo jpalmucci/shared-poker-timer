@@ -222,7 +222,7 @@ impl Timer {
 
     pub fn subscribe(&mut self, device_id: Uuid, payload: Subscription) {
         match &mut self.tournament {
-            Some(ref mut tournament) => {
+            Some(tournament) => {
                 tournament.subscriptions.remove(&device_id);
                 tournament.subscriptions.insert(device_id, payload);
                 info!("Device {} is subscribed.", device_id);
@@ -234,7 +234,7 @@ impl Timer {
 
     pub fn unsubscribe(&mut self, device_id: Uuid) {
         match &mut self.tournament {
-            Some(ref mut tournament) => {
+            Some(tournament) => {
                 tournament.subscriptions.remove(&device_id);
                 info!("Device {} is unsubscribed.", device_id);
                 self.broadcast(None, TournamentMessage::NotificationChange(device_id));
@@ -284,21 +284,21 @@ impl Timer {
         }
     }
     pub fn update_settings(&mut self, duration_override: Option<Duration>) {
-        if let Some(ref mut tournament) = &mut self.tournament {
+        if let Some(tournament) = &mut self.tournament {
             tournament.update_settings(duration_override);
             (&*self).broadcast(None, TournamentMessage::Settings);
         }
     }
 
     fn resume_tournament(&mut self, device_id: Uuid) {
-        if let Some(ref mut tournament) = &mut self.tournament {
+        if let Some(tournament) = &mut self.tournament {
             tournament.clock_state = tournament.clock_state.resume();
             (&*self).broadcast(Some(device_id), TournamentMessage::Resume);
         }
     }
 
     fn pause_tournament(&mut self, device_id: Uuid) {
-        if let Some(ref mut tournament) = &mut self.tournament {
+        if let Some(tournament) = &mut self.tournament {
             tournament.clock_state = tournament.clock_state.pause();
             (&*self).broadcast(Some(device_id), TournamentMessage::Pause);
         }

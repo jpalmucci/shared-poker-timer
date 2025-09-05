@@ -180,7 +180,7 @@ fn HomePage() -> impl IntoView {
 
     let link_signal = RwSignal::<Result<String, String>>::new(Err("Required".to_string()));
     // TODO - make this an environment variable
-    let re = regex!(r#"^https://pokertimer.palmucci.net/([^/]+)/timer/(.*)$"#);
+    let re = regex!(r#"^https://([^/]+)/([^/]+)/timer/(.*)$"#);
 
     let validate_link = |s: &str| -> Option<String> {
         if s.len() == 0 {
@@ -189,9 +189,9 @@ fn HomePage() -> impl IntoView {
             let cap = re.captures(&s);
             match cap {
                 None => Some("Not a valid pokertimer URL".to_string()),
-                Some(cap) => match cap.get(1) {
+                Some(cap) => match cap.get(2) {
                     None => Some("Not a valid pokertimer URL".to_string()),
-                    Some(cap) => match Uuid::parse_str(cap.into()) {
+                    Some(uuid) => match Uuid::parse_str(uuid.into()) {
                         Ok(_) => None,
                         Err(_) => Some("Not a valid pokertimer URL".to_string()),
                     },
@@ -203,8 +203,8 @@ fn HomePage() -> impl IntoView {
         let link = link_signal.get();
         if let Ok(link) = link {
             if let Some(caps) = re.captures(&link) {
-                if let Ok(id) = Uuid::parse_str(caps.get(1).unwrap().as_str()) {
-                    let name: String = caps.get(2).unwrap().as_str().to_string();
+                if let Ok(id) = Uuid::parse_str(caps.get(2).unwrap().as_str()) {
+                    let name: String = caps.get(3).unwrap().as_str().to_string();
                     set_timers.write().push(TimerRef { id, name });
                 }
             }

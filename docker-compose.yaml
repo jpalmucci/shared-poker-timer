@@ -4,9 +4,10 @@ services:
     image: jpalmucci/pokertimer:latest
     environment:
       - RUST_LOG=info
-      - LEPTOS_SITE_ADDR=0.0.0.0:8443
+      - LEPTOS_SITE_ADDR=0.0.0.0:3000
     ports:
       - "443:8443"
+      - "3000:3000"
     volumes:
       - ./certs:/app/certs
       - ./storage:/app/storage

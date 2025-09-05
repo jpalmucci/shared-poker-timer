@@ -16,13 +16,10 @@
       "name": "Debug",
       "expressions": "simple",
       "preLaunchTask": "debug-build",
-      "preRunCommands": [
-        // !! change this path if you placed the script somewhere else !!
-        "command script import ${workspaceFolder}/rust-prettifier-for-lldb/rust_prettifier_for_lldb.py"
-      ],
       "program": "${workspaceFolder}/target/debug/pokertimer",
       // "cwd": "${workspaceFolder}/target/site",
-      "args": []
+      "args": [],
+      "env": { "LEPTOS_SITE_ADDR": "0.0.0.0:3000", "RUST_LOG": "info" }
     },
     {
       "type": "lldb",
