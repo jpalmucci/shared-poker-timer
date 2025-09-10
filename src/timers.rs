@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use crate::model::*;
 use axum::extract::ws::{Message, WebSocket};
-use codee::string::JsonSerdeWasmCodec;
 use codee::Encoder;
+use codee::string::JsonSerdeWasmCodec;
 use dashmap::DashMap;
 use leptos::prelude::*;
 use leptos::server_fn::error::ServerFnErrorErr;
@@ -15,9 +15,9 @@ use once_cell::sync::Lazy;
 use tokio::time::sleep;
 use uuid::Uuid;
 
-use crate::backend::{send_notification, Notification, Subscription};
+use crate::backend::{Notification, Subscription, send_notification};
 use crate::persistence::StoredTournament;
-use crate::structures::{Structure, STRUCTURES};
+use crate::structures::{STRUCTURES, Structure};
 
 static TIMERS: Lazy<DashMap<Uuid, Timer>> = Lazy::new(|| DashMap::new());
 

@@ -1,17 +1,17 @@
 //! All the startup code and Axum handlers
 
-use crate::app::shell;
 use crate::app::App;
+use crate::app::shell;
 use crate::persistence::load_saved;
 use crate::persistence::save_running;
 use crate::timers::handle_socket;
+use axum::Json;
 use axum::extract::Path;
 use axum::extract::WebSocketUpgrade;
-use axum::http::header;
 use axum::http::HeaderMap;
 use axum::http::StatusCode;
+use axum::http::header;
 use axum::response::IntoResponse;
-use axum::Json;
 use image::Luma;
 use log::{error, info};
 use once_cell::sync::Lazy;
@@ -31,12 +31,12 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::fs;
 
     use axum::{
-        routing::{any, get},
         Router,
+        routing::{any, get},
     };
     use axum_server::tls_rustls::RustlsConfig;
     use leptos::prelude::*;
-    use leptos_axum::{generate_route_list, LeptosRoutes};
+    use leptos_axum::{LeptosRoutes, generate_route_list};
     use log::info;
     env_logger::init();
 
@@ -193,7 +193,10 @@ pub fn send_notification(s: &Subscription, notification: &Notification) -> () {
     });
 }
 
-pub async fn qr_code(Path((timer_id, timer_name)): Path<(Uuid, String)>, headers: HeaderMap) -> impl IntoResponse {
+pub async fn qr_code(
+    Path((timer_id, timer_name)): Path<(Uuid, String)>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
     // Get the Host header
     let host = if let Some(host) = headers.get("Host")
         && let Ok(host_str) = host.to_str()

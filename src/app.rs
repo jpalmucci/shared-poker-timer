@@ -2,20 +2,22 @@
 
 use crate::model::*;
 use codee::string::JsonSerdeCodec;
-use js_sys::{Promise, JSON};
+use js_sys::{JSON, Promise};
 use lazy_regex::regex;
 use leptos::{prelude::*, task::spawn_local};
 // https://carloskiki.github.io/icondata/
 use leptos_icons::Icon;
-use leptos_meta::{provide_meta_context, Link, MetaTags, Script, Stylesheet, Title};
+use leptos_meta::{Link, MetaTags, Script, Stylesheet, Title, provide_meta_context};
 use leptos_router::{
+    NavigateOptions, StaticSegment,
     components::{Route, Router, Routes},
     hooks::{use_navigate, use_params},
-    path, NavigateOptions, StaticSegment,
+    path,
 };
 use leptos_use::{
-    storage::{use_local_storage_with_options, UseStorageOptions},
-    use_interval, use_websocket_with_options, UseWebSocketOptions,
+    UseWebSocketOptions,
+    storage::{UseStorageOptions, use_local_storage_with_options},
+    use_interval, use_websocket_with_options,
 };
 use log::{error, info};
 use uuid::Uuid;
@@ -516,10 +518,10 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                             <div class="clock">
                                 <Clock state=state.clock />
                             </div>
-                            <div class="next-level">"Next Level: " {next_display_string}</div>
                             <p style:text-align="center">
                                 <img src=format!("/{timer_id}/qr/{encoded_name}") />
                             </p>
+                            <div class="next-level">"Next Level: " {next_display_string}</div>
                             <NotificationBox timer_id=timer_id subscribed=subscribed />
                             {match state.clock {
                                 ClockState::Paused { .. } => {

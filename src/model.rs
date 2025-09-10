@@ -8,7 +8,7 @@ pub fn now() -> DateTime {
     chrono::Local::now()
 }
 
-use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Visitor, ser::SerializeStruct};
 use uuid::Uuid;
 
 #[derive(Clone, PartialEq, serde::Deserialize, serde::Serialize, Debug)]
@@ -17,7 +17,7 @@ pub enum Level {
         game: String,
         small: u32,
         big: u32,
-        ante: u32,
+        ante: Option<u32>,
         duration: Duration,
     },
     Limit {
@@ -69,7 +69,13 @@ impl Level {
                 big,
                 ante,
                 ..
-            } => format!["{game} {small} / {big} / {ante}"],
+            } => {
+                if let Some(ante) = ante {
+                    format!["{game} {small} / {big} / {ante}"]
+                } else {
+                    format!["{game} {small} / {big}"]
+                }
+            }
             Level::Limit {
                 game, small, big, ..
             } => format!["{game} {small} / {big}  Big Bet: {}", big * 2],
@@ -94,7 +100,13 @@ impl Level {
         match self {
             Level::Blinds {
                 small, big, ante, ..
-            } => format!["{small} / {big} / {ante}"],
+            } => {
+                if let Some(ante) = ante {
+                    format!["{small} / {big} / {ante}"]
+                } else {
+                    format!["{small} / {big}"]
+                }
+            }
             Level::Limit { small, big, .. } => format!["{small} / {big}  Big Bet: {}", big * 2],
             Level::Break { duration } => {
                 let min = duration.num_minutes();
