@@ -475,18 +475,36 @@ impl Tournament {
         if self.level as i8 + delta < 0 {
             return LevelUpResult::Invalid;
         }
+
+        // Capture any overtime from the current level before changing levels
+        let current_remaining = self.clock_state.remaining();
+        let overtime = if current_remaining < Duration::zero() {
+            current_remaining.abs()
+        } else {
+            Duration::zero()
+        };
+
         self.level = (self.level as i8 + delta) as usize;
         let level = self.structure.get_level(self.level);
         if level == &Level::Done {
             return LevelUpResult::Done;
         }
-        let duration = match level {
+        let mut duration = match level {
             Level::Break { .. } => level.duration(), // Never override break duration
             _ => match self.duration_override {
                 Some(duration) => duration,
                 None => level.duration(),
             },
         };
+
+        // Subtract any overtime from the new level's duration
+        duration = duration - overtime;
+
+        // Ensure duration doesn't go negative
+        if duration < Duration::zero() {
+            duration = Duration::zero();
+        }
+
         self.clock_state = match self.clock_state {
             ClockState::Paused { .. } => ClockState::Paused {
                 remaining: duration,
