@@ -422,7 +422,10 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                         settable_state.set(timer_comp_state);
                     }
                 }
-                DeviceMessage::Beep => beep(),
+                DeviceMessage::Beep => {
+                    blink_screen();
+                    beep();
+                }
             };
         }
     });
@@ -766,6 +769,40 @@ pub fn beep() {
     let result = eval(&format!(
         "
     new Audio('/beep.mp3').play();
+    ",
+    ));
+    if let Err(e) = result {
+        error!("{e:?}");
+    };
+}
+
+pub fn blink_screen() {
+    use js_sys::eval;
+    let result = eval(&format!(
+        "
+    (function() {{
+        const originalBg = document.body.style.backgroundColor;
+        const originalFilter = document.body.style.filter;
+
+        // Blink twice quickly
+        document.body.style.backgroundColor = 'white';
+        document.body.style.filter = 'brightness(2)';
+
+        setTimeout(() => {{
+            document.body.style.backgroundColor = originalBg;
+            document.body.style.filter = originalFilter;
+
+            setTimeout(() => {{
+                document.body.style.backgroundColor = 'white';
+                document.body.style.filter = 'brightness(2)';
+
+                setTimeout(() => {{
+                    document.body.style.backgroundColor = originalBg;
+                    document.body.style.filter = originalFilter;
+                }}, 150);
+            }}, 150);
+        }}, 150);
+    }})();
     ",
     ));
     if let Err(e) = result {
