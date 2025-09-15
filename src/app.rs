@@ -523,6 +523,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                             </p>
                             <div class="next-level">"Next Level: " {next_display_string}</div>
                             <NotificationBox timer_id=timer_id subscribed=subscribed />
+                            <WakeLockBox />
                             {match state.clock {
                                 ClockState::Paused { .. } => {
                                     view! {
@@ -653,6 +654,45 @@ fn NotificationBox(timer_id: Uuid, subscribed: bool) -> impl IntoView {
     }
 }
 
+#[component]
+fn WakeLockBox() -> impl IntoView {
+    let wake_lock_enabled = RwSignal::new(isWakeLockEnabled());
+
+    view! {
+        <p>
+            <input
+                type="checkbox"
+                prop:checked=move || wake_lock_enabled.get()
+                on:change:target=move |evt| {
+                    let checked = evt.target().checked();
+                    if checked {
+                        spawn_local(async move {
+                            match JsFuture::from(enableWakeLock()).await {
+                                Ok(_) => wake_lock_enabled.set(true),
+                                Err(e) => {
+                                    error!("Couldn't enable wake lock: {:?}", e);
+                                    wake_lock_enabled.set(false);
+                                }
+                            }
+                        });
+                    } else {
+                        spawn_local(async move {
+                            match JsFuture::from(disableWakeLock()).await {
+                                Ok(_) => wake_lock_enabled.set(false),
+                                Err(e) => {
+                                    error!("Couldn't disable wake lock: {:?}", e);
+                                    wake_lock_enabled.set(true);
+                                }
+                            }
+                        });
+                    }
+                }
+            />
+            "Keep Screen Awake"
+        </p>
+    }
+}
+
 async fn pwa_notification_supported() -> bool {
     let result = JsFuture::from(notificationsSupported()).await;
     match result {
@@ -672,6 +712,12 @@ extern "C" {
     fn startNotifications() -> Promise;
     #[wasm_bindgen]
     fn stopNotifications() -> Promise;
+    #[wasm_bindgen]
+    fn enableWakeLock() -> Promise;
+    #[wasm_bindgen]
+    fn disableWakeLock() -> Promise;
+    #[wasm_bindgen]
+    fn isWakeLockEnabled() -> bool;
 }
 
 async fn start_notifications(device_id: Uuid, timer_id: Uuid) -> Result<(), ServerFnError> {
