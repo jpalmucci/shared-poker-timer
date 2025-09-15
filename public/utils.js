@@ -82,12 +82,31 @@ class UniversalWakeLock {
         this.method = 'native';
         console.log('Using native Wake Lock API');
 
+        // Listen for wake lock release events
+        this.wakeLock.addEventListener('release', () => {
+          console.log('Wake lock was released');
+          this.wakeLock = null;
+          this.enabled = false;
+        });
+
         // Set up visibility change handler if not already set
         if (!this.visibilityHandler) {
           this.visibilityHandler = () => {
             if (document.visibilityState === 'visible' && this.enabled && !this.wakeLock) {
+              // Reacquire wake lock when page becomes visible and we don't have an active lock
               navigator.wakeLock.request('screen').then(lock => {
                 this.wakeLock = lock;
+                this.enabled = true;
+                console.log('Wake lock reacquired on visibility change');
+
+                // Set up release listener for the new lock
+                lock.addEventListener('release', () => {
+                  console.log('Wake lock was released');
+                  this.wakeLock = null;
+                  this.enabled = false;
+                });
+              }).catch(err => {
+                console.log('Failed to reacquire wake lock:', err);
               });
             }
           };
