@@ -661,7 +661,8 @@ fn NotificationBox(timer_id: Uuid, subscribed: bool) -> impl IntoView {
 fn WakeLockBox() -> impl IntoView {
     let wake_lock_enabled = RwSignal::new(isWakeLockEnabled());
 
-    // Update checkbox state when page becomes visible
+    // Update checkbox state when page becomes visible because most browsers
+    // drop it when we are not visible
     Effect::new(move |_| {
         use wasm_bindgen::closure::Closure;
         use wasm_bindgen::JsCast;
