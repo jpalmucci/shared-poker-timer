@@ -470,6 +470,160 @@ pub static STRUCTURES: Lazy<HashMap<String, Arc<Structure>>> = Lazy::new(|| {
             ],
         }),
     );
+    map.insert(
+        "FARGO Pairs".to_string(),
+        Arc::new(Structure {
+            levels: vec![
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 100,
+                    big: 100,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 100,
+                    big: 100,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 100,
+                    big: 200,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 100,
+                    big: 200,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 200,
+                    big: 400,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 200,
+                    big: 400,
+                    duration: Duration::minutes(20),
+                },
+                Level::Break {
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 300,
+                    big: 600,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 300,
+                    big: 600,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 400,
+                    big: 800,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 400,
+                    big: 800,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 600,
+                    big: 1200,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 600,
+                    big: 1200,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 800,
+                    big: 1600,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 800,
+                    big: 1600,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 1200,
+                    big: 2400,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 1200,
+                    big: 2400,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 1600,
+                    big: 3200,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 1600,
+                    big: 3200,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 2000,
+                    big: 400,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 2000,
+                    big: 4000,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 3000,
+                    big: 6000,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 3000,
+                    big: 6000,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 4000,
+                    big: 8000,
+                    duration: Duration::minutes(20),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 4000,
+                    big: 8000,
+                    duration: Duration::minutes(20),
+                },
+            ],
+        }),
+    );
 
     map
 });
