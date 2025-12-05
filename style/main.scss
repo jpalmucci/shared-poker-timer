@@ -94,4 +94,46 @@ a:hover {
 .title {
   text-align: center;
   font-size: 24px;
+  margin-bottom: 20px;
+}
+
+/* Responsive timer layout */
+.timer-main-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.timer-info-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.qr-code-section {
+  display: flex;
+  justify-content: center;
+}
+
+/* Horizontal layout for landscape orientation on phones/tablets */
+@media (orientation: landscape) and (max-height: 600px) {
+  .timer-main-content {
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: flex-start;
+  }
+
+  .timer-info-section {
+    flex: 1;
+  }
+
+  .qr-code-section {
+    flex: 0 0 auto;
+
+    img {
+      max-height: 300px;
+      width: auto;
+    }
+  }
 }

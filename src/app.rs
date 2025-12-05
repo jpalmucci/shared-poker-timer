@@ -496,7 +496,9 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                                     <button type="submit">Start</button>
                                 </form>
                             </p>
-                            <img src=format!("/{timer_id}/qr/{encoded_name}") />
+                            <div class="qr-code-section">
+                                <img src=format!("/{timer_id}/qr/{encoded_name}") />
+                            </div>
                         }
                             .into_any()
                     }
@@ -514,39 +516,45 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                                 }
                             </div>
 
-                            <div class="level">
-                                "Level " {state.level} ": " {state.cur.game().to_string()}
+                            <div class="timer-main-content">
+                                <div class="timer-info-section">
+                                    <div class="level">
+                                        "Level " {state.level} ": " {state.cur.game().to_string()}
+                                    </div>
+                                    <div class="cur-level">{cur_display_string}</div>
+                                    <div class="clock">
+                                        <Clock state=state.clock />
+                                    </div>
+                                    <div class="next-level">"Next Level: " {next_display_string}</div>
+                                    <p>
+                                    <div><NotificationBox timer_id=timer_id subscribed=subscribed /></div>
+                                    <div><WakeLockBox /></div>
+                                    </p>
+                                    {match state.clock {
+                                        ClockState::Paused { .. } => {
+                                            view! {
+                                                <button on:click={
+                                                    let send = socket.send.clone();
+                                                    move |_| send(&Command::Resume)
+                                                }>Resume</button>
+                                            }
+                                                .into_any()
+                                        }
+                                        ClockState::Running { .. } => {
+                                            view! {
+                                                <button on:click={
+                                                    let send = socket.send.clone();
+                                                    move |_| send(&Command::Pause)
+                                                }>Pause</button>
+                                            }
+                                                .into_any()
+                                        }
+                                    }}
+                                </div>
+                                <div class="qr-code-section">
+                                    <img src=format!("/{timer_id}/qr/{encoded_name}") />
+                                </div>
                             </div>
-                            <div class="cur-level">{cur_display_string}</div>
-                            <div class="clock">
-                                <Clock state=state.clock />
-                            </div>
-                            <p style:text-align="center">
-                                <img src=format!("/{timer_id}/qr/{encoded_name}") />
-                            </p>
-                            <div class="next-level">"Next Level: " {next_display_string}</div>
-                            <NotificationBox timer_id=timer_id subscribed=subscribed />
-                            <WakeLockBox />
-                            {match state.clock {
-                                ClockState::Paused { .. } => {
-                                    view! {
-                                        <button on:click={
-                                            let send = socket.send.clone();
-                                            move |_| send(&Command::Resume)
-                                        }>Resume</button>
-                                    }
-                                        .into_any()
-                                }
-                                ClockState::Running { .. } => {
-                                    view! {
-                                        <button on:click={
-                                            let send = socket.send.clone();
-                                            move |_| send(&Command::Pause)
-                                        }>Pause</button>
-                                    }
-                                        .into_any()
-                                }
-                            }}
                         }
                             .into_any()
                     }
@@ -623,7 +631,6 @@ fn NotificationBox(timer_id: Uuid, subscribed: bool) -> impl IntoView {
             if notifications_available.get().is_some_and(|v| *v) {
                 Some(
                     view! {
-                        <p>
                             <input
                                 type="checkbox"
                                 prop:checked=subscribed
@@ -647,7 +654,6 @@ fn NotificationBox(timer_id: Uuid, subscribed: bool) -> impl IntoView {
                                 }
                             />
                             "Notifications"
-                        </p>
                     },
                 )
             } else {
@@ -689,7 +695,6 @@ fn WakeLockBox() -> impl IntoView {
     });
 
     view! {
-        <p>
             <input
                 type="checkbox"
                 prop:checked=move || wake_lock_enabled.get()
@@ -719,7 +724,6 @@ fn WakeLockBox() -> impl IntoView {
                 }
             />
             "Keep Screen Awake"
-        </p>
     }
 }
 
