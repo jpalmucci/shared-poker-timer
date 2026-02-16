@@ -406,7 +406,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
         &format!("/{}/ws/{}", timer_id, device_id),
         UseWebSocketOptions::default()
             .reconnect_limit(leptos_use::ReconnectLimit::Infinite)
-            .reconnect_interval(30000) // Reconnect after 30 seconds
+            .reconnect_interval(3000) // Reconnect after 3 seconds
             .on_message_raw(|m| {
                 info!("On Raw Message {:?}", m);
             })
