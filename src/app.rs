@@ -674,9 +674,9 @@ fn WakeLockBox() -> impl IntoView {
     // Update checkbox state when page becomes visible because most browsers
     // drop it when we are not visible
     Effect::new(move |_| {
-        use wasm_bindgen::closure::Closure;
         use wasm_bindgen::JsCast;
-        use web_sys::{window, Event};
+        use wasm_bindgen::closure::Closure;
+        use web_sys::{Event, window};
 
         let callback = Closure::wrap(Box::new(move |_event: Event| {
             if let Some(window) = window() {
@@ -691,7 +691,10 @@ fn WakeLockBox() -> impl IntoView {
 
         if let Some(window) = window() {
             if let Some(document) = window.document() {
-                let _ = document.add_event_listener_with_callback("visibilitychange", callback.as_ref().unchecked_ref());
+                let _ = document.add_event_listener_with_callback(
+                    "visibilitychange",
+                    callback.as_ref().unchecked_ref(),
+                );
             }
         }
 

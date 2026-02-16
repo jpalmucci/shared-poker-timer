@@ -432,9 +432,11 @@ impl Tournament {
                     };
                     // wait until the time has elapsed, or a message that changed the state of the
                     // tournament occurred.
-                    tokio::select! {
-                        _ = sleep(std::time::Duration::from_millis(time.num_milliseconds() as u64)) => {},
-                        _ = rx.recv() => {}
+                    if time.num_milliseconds() > 0 {
+                        tokio::select! {
+                            _ = sleep(std::time::Duration::from_millis(time.num_milliseconds() as u64)) => {},
+                            _ = rx.recv() => {}
+                        }
                     }
                 }
 
@@ -446,7 +448,7 @@ impl Tournament {
                             break;
                         }
                         Some(tournament) => {
-                            if tournament.clock_state.remaining().num_seconds() < 2 {
+                            if tournament.clock_state.remaining().num_seconds() <= 0 {
                                 let done = timer.level_up(1);
                                 gave_warning = false;
                                 if done {
