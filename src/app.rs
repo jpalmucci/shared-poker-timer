@@ -814,25 +814,24 @@ pub fn blink_screen() {
     (function() {{
         const originalBg = document.body.style.backgroundColor;
         const originalFilter = document.body.style.filter;
+        const blinkCount = 8;
+        let i = 0;
 
-        // Blink twice quickly
-        document.body.style.backgroundColor = 'white';
-        document.body.style.filter = 'brightness(2)';
+        function doBlink() {{
+            if (i >= blinkCount * 2) return;
 
-        setTimeout(() => {{
-            document.body.style.backgroundColor = originalBg;
-            document.body.style.filter = originalFilter;
-
-            setTimeout(() => {{
+            if (i % 2 === 0) {{
                 document.body.style.backgroundColor = 'white';
                 document.body.style.filter = 'brightness(2)';
+            }} else {{
+                document.body.style.backgroundColor = originalBg;
+                document.body.style.filter = originalFilter;
+            }}
+            i++;
+            setTimeout(doBlink, 150);
+        }}
 
-                setTimeout(() => {{
-                    document.body.style.backgroundColor = originalBg;
-                    document.body.style.filter = originalFilter;
-                }}, 150);
-            }}, 150);
-        }}, 150);
+        doBlink();
     }})();
     ",
     ));
