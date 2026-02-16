@@ -670,7 +670,31 @@ pub async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocke
                         Err(_) => break
                     }
                 },
-                _ => { break; },
+                Some(Ok(Message::Ping(data))) => {
+                    // Respond to ping with pong to keep connection alive
+                    if let Err(e) = socket.send(Message::Pong(data)).await {
+                        info!("couldn't send pong {e}");
+                        break;
+                    }
+                },
+                Some(Ok(Message::Pong(_))) => {
+                    // Pong received, connection is alive - continue
+                },
+                Some(Ok(Message::Close(_))) => {
+                    // Client requested close
+                    break;
+                },
+                Some(Ok(Message::Binary(_))) => {
+                    // Ignore binary messages, keep connection open
+                },
+                Some(Err(e)) => {
+                    info!("WebSocket error: {e}");
+                    break;
+                },
+                None => {
+                    // Connection closed
+                    break;
+                },
             }
         }
         }

@@ -405,12 +405,16 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
     let socket = use_websocket_with_options::<Command, DeviceMessage, JsonSerdeCodec, _, _>(
         &format!("/{}/ws/{}", timer_id, device_id),
         UseWebSocketOptions::default()
-            .reconnect_limit(leptos_use::ReconnectLimit::Limited(100))
+            .reconnect_limit(leptos_use::ReconnectLimit::Infinite)
+            .reconnect_interval(30000) // Reconnect after 30 seconds
             .on_message_raw(|m| {
                 info!("On Raw Message {:?}", m);
             })
             .on_error(|e| {
                 info!("On Error {:?}", e);
+            })
+            .on_close(|e| {
+                info!("WebSocket closed: {:?}", e);
             }),
     );
     Effect::new(move |_| {
