@@ -170,7 +170,20 @@ fn HomePage() -> impl IntoView {
     use icondata::AiDeleteFilled;
     let (timers, set_timers, _) = use_local_storage_with_options::<Vec<TimerRef>, JsonSerdeCodec>(
         "timers",
-        UseStorageOptions::default().delay_during_hydration(true),
+        UseStorageOptions::default()
+            .delay_during_hydration(true)
+            .on_error(|e| {
+                error!("localStorage error for 'timers': {e}");
+                if let leptos_use::storage::UseStorageError::ItemCodecError(
+                    codee::CodecError::Decode(_),
+                ) = &e
+                {
+                    // Clear corrupted data so the app self-heals on next load
+                    if let Ok(Some(storage)) = window().local_storage() {
+                        let _ = storage.remove_item("timers");
+                    }
+                }
+            }),
     );
     let name_signal = RwSignal::<Result<String, String>>::new(Err("Required".to_string()));
     let onsubmit = move |_| {
@@ -303,54 +316,52 @@ fn TimerPage() -> impl IntoView {
 
 #[cfg(not(feature = "ssr"))]
 fn maybe_add_timer(timer_id: Uuid, timer_name: &str) {
+    fn write_timers(storage: &web_sys::Storage, timers: &Vec<TimerRef>) {
+        match serde_json::to_string(timers) {
+            Ok(json) => {
+                if let Err(e) = storage.set_item("timers", &json) {
+                    error!("Couldn't store timers: {:?}", e);
+                }
+            }
+            Err(e) => error!("Couldn't serialize timers: {e}"),
+        }
+    }
+
     if let Ok(Some(storage)) = window().local_storage() {
         match storage.get_item("timers") {
             Ok(Some(item)) => {
                 match serde_json::from_str::<Vec<TimerRef>>(&item) {
                     Ok(mut timers) => {
-                        if let None = timers.iter().find(|t| t.id == timer_id) {
+                        if timers.iter().find(|t| t.id == timer_id).is_none() {
                             // timer is not in data, add it
                             timers.push(TimerRef {
                                 id: timer_id,
                                 name: timer_name.to_string(),
                             });
-
-                            storage
-                                .set_item(
-                                    "timers",
-                                    &serde_json::to_string::<Vec<TimerRef>>(&timers)
-                                        .expect("Couldn't serialize"),
-                                )
-                                .expect("Couldn't store timers");
+                            write_timers(&storage, &timers);
                         }
                     }
                     _ => {
                         // couldn't parse the storage, replace it
-                        storage
-                            .set_item(
-                                "timers",
-                                &serde_json::to_string::<Vec<TimerRef>>(&vec![TimerRef {
-                                    id: timer_id,
-                                    name: timer_name.to_string(),
-                                }])
-                                .expect("Couldn't Serialize"),
-                            )
-                            .expect("Couldn't store timers");
+                        write_timers(
+                            &storage,
+                            &vec![TimerRef {
+                                id: timer_id,
+                                name: timer_name.to_string(),
+                            }],
+                        );
                     }
                 }
             }
             _ => {
                 // no string exists yet
-                storage
-                    .set_item(
-                        "timers",
-                        &serde_json::to_string::<Vec<TimerRef>>(&vec![TimerRef {
-                            id: timer_id,
-                            name: timer_name.to_string(),
-                        }])
-                        .expect("Couldn't Serialize"),
-                    )
-                    .expect("Couldn't store timers");
+                write_timers(
+                    &storage,
+                    &vec![TimerRef {
+                        id: timer_id,
+                        name: timer_name.to_string(),
+                    }],
+                );
             }
         };
     };
@@ -362,38 +373,42 @@ fn maybe_add_timer(_timer_id: Uuid, _timer_name: &str) {
 }
 
 #[cfg(not(feature = "ssr"))]
-fn get_device_id() -> Uuid {
-    fn set_id(storage: &web_sys::Storage, id: Uuid) -> Uuid {
-        storage
-            .set_item("deviceid", &id.to_string())
-            .expect("Couldn't set device_id");
-        id
-    }
-    if let Ok(Some(storage)) = window().local_storage() {
-        match storage.get_item("deviceid") {
-            Ok(Some(item)) => {
-                match Uuid::parse_str(&item) {
-                    Ok(id) => id,
-                    Err(_) => {
-                        // value was unparseable, set a new value
-                        set_id(&storage, Uuid::new_v4())
-                    }
-                }
-            }
-            _ => {
-                // id wasn't there, make a new one
-                set_id(&storage, Uuid::new_v4())
-            }
+fn get_device_id() -> Option<Uuid> {
+    let storage = match window().local_storage() {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            error!("localStorage returned None");
+            return None;
         }
-    } else {
-        // no local storage, punt
-        Uuid::nil()
+        Err(e) => {
+            error!("localStorage not available: {:?}", e);
+            return None;
+        }
+    };
+    let id = match storage.get_item("deviceid") {
+        Ok(Some(item)) => match Uuid::parse_str(&item) {
+            Ok(id) => id,
+            Err(e) => {
+                error!("Couldn't parse device_id '{}': {}", item, e);
+                Uuid::new_v4()
+            }
+        },
+        Ok(None) => Uuid::new_v4(),
+        Err(e) => {
+            error!("Couldn't read device_id: {:?}", e);
+            return None;
+        }
+    };
+    if let Err(e) = storage.set_item("deviceid", &id.to_string()) {
+        error!("Couldn't persist device_id: {:?}", e);
+        return None;
     }
+    Some(id)
 }
 
 #[cfg(feature = "ssr")]
-fn get_device_id() -> Uuid {
-    Uuid::nil()
+fn get_device_id() -> Option<Uuid> {
+    None
 }
 
 #[component]
@@ -401,9 +416,13 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
     maybe_add_timer(timer_id, &timer_name);
     let encoded_name = urlencoding::encode(&timer_name).into_owned();
     let device_id = get_device_id();
+    let ws_path = match device_id {
+        Some(id) => format!("/{}/ws/{}", timer_id, id),
+        None => format!("/{}/ws", timer_id),
+    };
     let settable_state = RwSignal::new(TimerCompState::Loading);
     let socket = use_websocket_with_options::<Command, DeviceMessage, JsonSerdeCodec, _, _>(
-        &format!("/{}/ws/{}", timer_id, device_id),
+        &ws_path,
         UseWebSocketOptions::default()
             .reconnect_limit(leptos_use::ReconnectLimit::Infinite)
             .reconnect_interval(3000) // Reconnect after 3 seconds
@@ -531,7 +550,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                                     </div>
                                     <div class="next-level">"Next Level: " {next_display_string}</div>
                                     <p>
-                                    <div><NotificationBox timer_id=timer_id subscribed=subscribed /></div>
+                                    <div><NotificationBox timer_id=timer_id subscribed=subscribed device_id=device_id /></div>
                                     <div><WakeLockBox /></div>
                                     </p>
                                     {match state.clock {
@@ -604,7 +623,7 @@ fn Clock(state: ClockState) -> impl IntoView {
 
 #[server]
 pub async fn current_state(
-    device_id: Uuid,
+    device_id: Option<Uuid>,
     timer_id: Uuid,
 ) -> Result<TimerCompState, ServerFnError> {
     use crate::timers::Timer;
@@ -626,13 +645,13 @@ pub async fn create_tournament(
 }
 
 #[component]
-fn NotificationBox(timer_id: Uuid, subscribed: bool) -> impl IntoView {
-    let device_id = get_device_id();
+fn NotificationBox(timer_id: Uuid, subscribed: bool, device_id: Option<Uuid>) -> impl IntoView {
     let notifications_available =
         LocalResource::new(|| async { pwa_notification_supported().await });
     view! {
         {move || {
-            if notifications_available.get().is_some_and(|v| *v) {
+            if device_id.is_some() && notifications_available.get().is_some_and(|v| *v) {
+                let device_id = device_id.unwrap();
                 Some(
                     view! {
                             <input
@@ -1031,7 +1050,7 @@ async fn tournament_settings(timer_id: Uuid) -> Result<Option<Duration>, ServerF
 async fn execute_command(
     cmd: Command,
     timer_id: Uuid,
-    device_id: Uuid,
+    device_id: Option<Uuid>,
 ) -> Result<(), ServerFnError> {
     use crate::timers::Timer;
     Timer::get_mut(timer_id).execute(&cmd, device_id);

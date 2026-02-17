@@ -60,6 +60,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .route("/:timer_id/qr/:timer_name", get(qr_code))
         .route("/:timer_id/ws/:device_id", any(websocket_handler))
+        .route("/:timer_id/ws", any(websocket_handler_no_device))
         .route("/:timer_id/:timer_name/manifest.json", get(manifest))
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
@@ -128,7 +129,14 @@ pub async fn websocket_handler(
     Path((timer_id, device_id)): Path<(Uuid, Uuid)>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    ws.on_upgrade(async move |socket| handle_socket(timer_id, device_id, socket).await)
+    ws.on_upgrade(async move |socket| handle_socket(timer_id, Some(device_id), socket).await)
+}
+
+pub async fn websocket_handler_no_device(
+    Path(timer_id): Path<Uuid>,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    ws.on_upgrade(async move |socket| handle_socket(timer_id, None, socket).await)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

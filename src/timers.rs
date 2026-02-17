@@ -272,9 +272,10 @@ impl Timer {
         (&*self).broadcast(None, TournamentMessage::Ended);
     }
 
-    pub fn to_timer_comp_state(&self, device: &Uuid) -> TimerCompState {
+    pub fn to_timer_comp_state(&self, device: &Option<Uuid>) -> TimerCompState {
         if let Some(tournament) = &self.tournament {
-            let subscribed = tournament.subscriptions.contains_key(&device);
+            let subscribed =
+                device.is_some_and(|id| tournament.subscriptions.contains_key(&id));
             TimerCompState::Running {
                 subscribed,
                 state: tournament.to_roundstate(),
@@ -290,20 +291,20 @@ impl Timer {
         }
     }
 
-    fn resume_tournament(&mut self, device_id: Uuid) {
+    fn resume_tournament(&mut self, device_id: Option<Uuid>) {
         if let Some(tournament) = &mut self.tournament {
             tournament.clock_state = tournament.clock_state.resume();
-            (&*self).broadcast(Some(device_id), TournamentMessage::Resume);
+            (&*self).broadcast(device_id, TournamentMessage::Resume);
         }
     }
 
-    fn pause_tournament(&mut self, device_id: Uuid) {
+    fn pause_tournament(&mut self, device_id: Option<Uuid>) {
         if let Some(tournament) = &mut self.tournament {
             tournament.clock_state = tournament.clock_state.pause();
-            (&*self).broadcast(Some(device_id), TournamentMessage::Pause);
+            (&*self).broadcast(device_id, TournamentMessage::Pause);
         }
     }
-    pub fn execute(&mut self, cmd: &Command, device_id: Uuid) {
+    pub fn execute(&mut self, cmd: &Command, device_id: Option<Uuid>) {
         match cmd {
             Command::Resume => {
                 self.resume_tournament(device_id);
@@ -608,7 +609,7 @@ pub fn set_tournament_settings(
     Ok(())
 }
 
-pub async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocket) {
+pub async fn handle_socket(timer_id: Uuid, device_id: Option<Uuid>, mut socket: WebSocket) {
     let (mut channel, hello) = {
         let timer = Timer::get(timer_id);
         (
@@ -632,7 +633,7 @@ pub async fn handle_socket(timer_id: Uuid, device_id: Uuid, mut socket: WebSocke
                 Ok((tm, _sender)) => {
                     if let TournamentMessage::NotificationChange(changing_device) = tm {
                         // this only changes the state of the device that is changing its subscription
-                        if changing_device != device_id {
+                        if device_id.is_none_or(|id| changing_device != id) {
                             continue;
                         }
                     }
