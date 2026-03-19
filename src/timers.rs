@@ -274,8 +274,7 @@ impl Timer {
 
     pub fn to_timer_comp_state(&self, device: &Option<Uuid>) -> TimerCompState {
         if let Some(tournament) = &self.tournament {
-            let subscribed =
-                device.is_some_and(|id| tournament.subscriptions.contains_key(&id));
+            let subscribed = device.is_some_and(|id| tournament.subscriptions.contains_key(&id));
             TimerCompState::Running {
                 subscribed,
                 state: tournament.to_roundstate(),

@@ -22,6 +22,181 @@ impl Structure {
 pub static STRUCTURES: Lazy<HashMap<String, Arc<Structure>>> = Lazy::new(|| {
     let mut map = HashMap::new();
     map.insert(
+        "HOSE".to_string(),
+        Arc::new(Structure {
+            levels: vec![
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 100,
+                    big: 300,
+                    duration: Duration::minutes(15),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 100,
+                    big: 300,
+                    duration: Duration::minutes(15),
+                },
+                Level::Stud {
+                    game: "Stud Hi".to_string(),
+                    ante: 100,
+                    bring_in: 100,
+                    small: 400,
+                    big: 800,
+                    duration: Duration::minutes(15),
+                },
+                Level::Stud {
+                    game: "Stud Hi/Lo".to_string(),
+                    ante: 100,
+                    bring_in: 200,
+                    small: 500,
+                    big: 1000,
+                    duration: Duration::minutes(15),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 300,
+                    big: 600,
+                    duration: Duration::minutes(15),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 400,
+                    big: 800,
+                    duration: Duration::minutes(15),
+                },
+                Level::Stud {
+                    game: "Stud Hi".to_string(),
+                    ante: 200,
+                    bring_in: 200,
+                    small: 800,
+                    big: 1600,
+                    duration: Duration::minutes(15),
+                },
+                Level::Stud {
+                    game: "Stud Hi/Lo".to_string(),
+                    ante: 200,
+                    bring_in: 300,
+                    small: 1000,
+                    big: 2000,
+                    duration: Duration::minutes(15),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 500,
+                    big: 1000,
+                    duration: Duration::minutes(15),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 600,
+                    big: 1200,
+                    duration: Duration::minutes(15),
+                },
+                Level::Stud {
+                    game: "Stud Hi".to_string(),
+                    ante: 300,
+                    bring_in: 500,
+                    small: 1500,
+                    big: 3000,
+                    duration: Duration::minutes(15),
+                },
+                Level::Stud {
+                    game: "Stud Hi/Lo".to_string(),
+                    ante: 500,
+                    bring_in: 500,
+                    small: 2000,
+                    big: 4000,
+                    duration: Duration::minutes(15),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 1500,
+                    big: 2500,
+                    duration: Duration::minutes(15),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 1500,
+                    big: 3000,
+                    duration: Duration::minutes(15),
+                },
+                Level::Stud {
+                    game: "Stud Hi".to_string(),
+                    ante: 1000,
+                    bring_in: 1000,
+                    small: 4000,
+                    big: 8000,
+                    duration: Duration::minutes(15),
+                },
+                Level::Stud {
+                    game: "Stud Hi/Lo".to_string(),
+                    ante: 1000,
+                    bring_in: 2000,
+                    small: 5000,
+                    big: 10000,
+                    duration: Duration::minutes(15),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 3000,
+                    big: 6000,
+                    duration: Duration::minutes(12),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 4000,
+                    big: 8000,
+                    duration: Duration::minutes(12),
+                },
+                Level::Stud {
+                    game: "Stud Hi".to_string(),
+                    ante: 2000,
+                    bring_in: 3000,
+                    small: 10000,
+                    big: 20000,
+                    duration: Duration::minutes(12),
+                },
+                Level::Stud {
+                    game: "Stud Hi/Lo".to_string(),
+                    ante: 3000,
+                    bring_in: 3000,
+                    small: 12000,
+                    big: 24000,
+                    duration: Duration::minutes(12),
+                },
+                Level::Limit {
+                    game: "Hold Em".to_string(),
+                    small: 8000,
+                    big: 1500,
+                    duration: Duration::minutes(12),
+                },
+                Level::Limit {
+                    game: "Omaha Hi/Lo".to_string(),
+                    small: 10000,
+                    big: 20000,
+                    duration: Duration::minutes(12),
+                },
+                Level::Stud {
+                    game: "Stud Hi".to_string(),
+                    ante: 5000,
+                    bring_in: 10000,
+                    small: 25000,
+                    big: 50000,
+                    duration: Duration::minutes(12),
+                },
+                Level::Stud {
+                    game: "Stud Hi/Lo".to_string(),
+                    ante: 10000,
+                    bring_in: 10000,
+                    small: 30000,
+                    big: 60000,
+                    duration: Duration::minutes(12),
+                },
+            ],
+        }),
+    );
+    map.insert(
         "Nightly TOC".to_string(),
         Arc::new(Structure {
             levels: vec![
@@ -174,6 +349,13 @@ pub static STRUCTURES: Lazy<HashMap<String, Arc<Structure>>> = Lazy::new(|| {
         "Nightly NLHE".to_string(),
         Arc::new(Structure {
             levels: vec![
+                Level::Blinds {
+                    game: "NLHE".to_string(),
+                    small: 100,
+                    big: 100,
+                    ante: Some(100),
+                    duration: Duration::minutes(20),
+                },
                 Level::Blinds {
                     game: "NLHE".to_string(),
                     small: 100,
