@@ -2,11 +2,13 @@
 
 use crate::app::App;
 use crate::app::shell;
+use crate::model::TimerNameQuery;
 use crate::persistence::load_saved;
 use crate::persistence::save_running;
 use crate::timers::handle_socket;
 use axum::Json;
 use axum::extract::Path;
+use axum::extract::Query;
 use axum::extract::WebSocketUpgrade;
 use axum::http::HeaderMap;
 use axum::http::StatusCode;
@@ -58,10 +60,10 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let leptos_options = leptos_options.clone();
             move || shell(leptos_options.clone())
         })
-        .route("/:timer_id/qr/:timer_name", get(qr_code))
+        .route("/:timer_id/qr", get(qr_code))
         .route("/:timer_id/ws/:device_id", any(websocket_handler))
         .route("/:timer_id/ws", any(websocket_handler_no_device))
-        .route("/:timer_id/:timer_name/manifest.json", get(manifest))
+        .route("/:timer_id/manifest.json", get(manifest))
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options);
 
@@ -201,8 +203,20 @@ pub fn send_notification(s: &Subscription, notification: &Notification) -> () {
     });
 }
 
+fn timer_query_string(name: &str, break_name: Option<&str>) -> String {
+    let mut q = format!("name={}", urlencoding::encode(name));
+    if let Some(b) = break_name {
+        q.push_str(&format!("&break_name={}", urlencoding::encode(b)));
+    }
+    q
+}
+
 pub async fn qr_code(
-    Path((timer_id, timer_name)): Path<(Uuid, String)>,
+    Path(timer_id): Path<Uuid>,
+    Query(TimerNameQuery {
+        name: timer_name,
+        break_name,
+    }): Query<TimerNameQuery>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     // Get the Host header
@@ -213,8 +227,10 @@ pub async fn qr_code(
     } else {
         return (StatusCode::INTERNAL_SERVER_ERROR, "Couldn't get host name").into_response();
     };
-    let timer_name = urlencoding::encode(&timer_name);
-    let url = format!("https://{host}/{timer_id}/timer/{timer_name}");
+    let url = format!(
+        "https://{host}/{timer_id}/timer?{}",
+        timer_query_string(&timer_name, break_name.as_deref())
+    );
     let code = QrCode::new(url).unwrap();
     let image = code.render::<Luma<u8>>().module_dimensions(4, 4).build();
     let mut buf = Cursor::new(Vec::new());
@@ -224,7 +240,13 @@ pub async fn qr_code(
     ([(header::CONTENT_TYPE, "image/png")], buf.into_inner()).into_response()
 }
 
-pub async fn manifest(Path((timer_id, timer_name)): Path<(Uuid, String)>) -> impl IntoResponse {
+pub async fn manifest(
+    Path(timer_id): Path<Uuid>,
+    Query(TimerNameQuery {
+        name: timer_name,
+        break_name,
+    }): Query<TimerNameQuery>,
+) -> impl IntoResponse {
     let body = json! {
         {
             "name": format!("{timer_name} Poker Timer"),
@@ -255,7 +277,10 @@ pub async fn manifest(Path((timer_id, timer_name)): Path<(Uuid, String)>) -> imp
             "background_color": "#ffffff",
             "dir": "ltr",
             "lang": "en",
-            "start_url": format!("/{timer_id}/timer/{timer_name}"),
+            "start_url": format!(
+                "/{timer_id}/timer?{}",
+                timer_query_string(&timer_name, break_name.as_deref())
+            ),
             "scope": format!("/{timer_id}/"),
             "id": format!("/{timer_id}/"),
           }

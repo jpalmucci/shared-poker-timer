@@ -128,7 +128,7 @@ impl Timer {
                                     body: "Tournament Resumed",
                                 },
                                 TournamentMessage::LevelUp(round_state) => {
-                                    let level = round_state.cur.short_level_string();
+                                    let level = round_state.cur.short_level_string(None);
                                     Notification {
                                         title: &title,
                                         body: &format!("Level Up: {level}"),

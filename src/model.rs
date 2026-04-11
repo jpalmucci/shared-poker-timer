@@ -61,7 +61,7 @@ impl Level {
     }
 
     // the string that we display in "next level" and in level up notifications
-    pub fn short_level_string(&self) -> String {
+    pub fn short_level_string(&self, break_name: Option<&str>) -> String {
         match self {
             Level::Blinds {
                 game,
@@ -81,7 +81,8 @@ impl Level {
             } => format!["{game} {small} / {big}  Big Bet: {}", big * 2],
             Level::Break { duration } => {
                 let min = duration.num_minutes();
-                format!["{min} MINUTE BREAK"]
+                let label = break_name.unwrap_or("BREAK");
+                format!["{min} MINUTE {label}"]
             }
             Level::Done => "FINISHED".to_string(),
             Level::Stud {
@@ -96,7 +97,7 @@ impl Level {
     }
 
     // the string that we display on the main timer (the game is displayed above it)
-    pub fn make_level_string(&self) -> String {
+    pub fn make_level_string(&self, break_name: Option<&str>) -> String {
         match self {
             Level::Blinds {
                 small, big, ante, ..
@@ -110,7 +111,8 @@ impl Level {
             Level::Limit { small, big, .. } => format!["{small} / {big}  Big Bet: {}", big * 2],
             Level::Break { duration } => {
                 let min = duration.num_minutes();
-                format!["{min} MINUTE BREAK"]
+                let label = break_name.unwrap_or("BREAK");
+                format!["{min} MINUTE {label}"]
             }
             Level::Done => "FINISHED".to_string(),
             Level::Stud {
@@ -265,4 +267,11 @@ pub enum Command {
     NextLevel,
     PrevLevel,
     Terminate,
+}
+
+/// Query-string parameters carried by timer/settings/qr/manifest URLs
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct TimerNameQuery {
+    pub name: String,
+    pub break_name: Option<String>,
 }

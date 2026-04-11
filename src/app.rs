@@ -11,7 +11,7 @@ use leptos_meta::{Link, MetaTags, Script, Stylesheet, Title, provide_meta_contex
 use leptos_router::{
     NavigateOptions, StaticSegment,
     components::{Route, Router, Routes},
-    hooks::{use_navigate, use_params},
+    hooks::{use_navigate, use_params, use_query},
     path,
 };
 use leptos_use::{
@@ -76,8 +76,8 @@ pub fn App() -> impl IntoView {
             <main>
                 <Routes fallback=|| "Page not found.".into_view()>
                     <Route path=StaticSegment("") view=HomePage />
-                    <Route path=path!("/:timer_id/timer/:timer_name") view=TimerPage />
-                    <Route path=path!("/:timer_id/settings/:timer_name") view=SettingsPage />
+                    <Route path=path!("/:timer_id/timer") view=TimerPage />
+                    <Route path=path!("/:timer_id/settings") view=SettingsPage />
                 </Routes>
             </main>
             <About />
@@ -90,6 +90,8 @@ pub fn App() -> impl IntoView {
 struct TimerRef {
     id: Uuid,
     name: String,
+    #[serde(default)]
+    break_name: Option<String>,
 }
 
 /// a form component that gets a string value
@@ -186,16 +188,25 @@ fn HomePage() -> impl IntoView {
             }),
     );
     let name_signal = RwSignal::<Result<String, String>>::new(Err("Required".to_string()));
+    let break_name_signal = RwSignal::<String>::new(String::new());
     let onsubmit = move |_| {
+        let break_name = break_name_signal.get();
         set_timers.write().push(TimerRef {
             id: Uuid::new_v4(),
             name: name_signal.get().unwrap(),
+            break_name: if break_name.is_empty() {
+                None
+            } else {
+                Some(break_name)
+            },
         });
     };
 
     let link_signal = RwSignal::<Result<String, String>>::new(Err("Required".to_string()));
     // TODO - make this an environment variable
-    let re = regex!(r#"^https://([^/]+)/([^/]+)/timer/(.*)$"#);
+    let re = regex!(
+        r#"^https://([^/]+)/([^/]+)/timer\?name=([^&]*)(?:&break_name=(.*))?$"#
+    );
 
     let validate_link = |s: &str| -> Option<String> {
         if s.len() == 0 {
@@ -219,8 +230,19 @@ fn HomePage() -> impl IntoView {
         if let Ok(link) = link {
             if let Some(caps) = re.captures(&link) {
                 if let Ok(id) = Uuid::parse_str(caps.get(2).unwrap().as_str()) {
-                    let name: String = caps.get(3).unwrap().as_str().to_string();
-                    set_timers.write().push(TimerRef { id, name });
+                    let name: String = urlencoding::decode(caps.get(3).unwrap().as_str())
+                        .map(|s| s.into_owned())
+                        .unwrap_or_else(|_| caps.get(3).unwrap().as_str().to_string());
+                    let break_name = caps.get(4).map(|m| {
+                        urlencoding::decode(m.as_str())
+                            .map(|s| s.into_owned())
+                            .unwrap_or_else(|_| m.as_str().to_string())
+                    });
+                    set_timers.write().push(TimerRef {
+                        id,
+                        name,
+                        break_name,
+                    });
                 }
             }
         };
@@ -240,9 +262,9 @@ fn HomePage() -> impl IntoView {
                             <a
                                 class="links"
                                 href=format!(
-                                    "/{}/timer/{}",
+                                    "/{}/timer?{}",
                                     timer.id,
-                                    urlencoding::encode(&timer.name),
+                                    timer_query(&timer.name, timer.break_name.as_deref()),
                                 )
                             >
                                 {timer.name.clone()}
@@ -269,26 +291,65 @@ fn HomePage() -> impl IntoView {
         <h2>Create</h2>
         <form on:submit=onsubmit class="form">
             <TextInput name="Add a new timer".to_string() signal=name_signal validator=required />
+            <div class="form_group">
+                <label for="break_name">"Break Name (optional)"</label>
+                <input
+                    type="text"
+                    class="input-field"
+                    name="break_name"
+                    on:input:target=move |ev| {
+                        break_name_signal.set(ev.target().value());
+                    }
+                    prop:value=move || break_name_signal.get()
+                />
+            </div>
             <button disabled=move || name_signal.get().is_err()>"Create"</button>
         </form>
     }
 }
 
 #[derive(Params, PartialEq, Clone, Debug)]
-struct TimerPageParams {
+struct RawTimerPageParams {
     timer_id: Option<Uuid>,
-    timer_name: Option<String>,
 }
 
-fn extract_params() -> Result<(Uuid, String), String> {
-    let params = use_params::<TimerPageParams>();
-    match params.get() {
-        Ok(TimerPageParams {
-            timer_id: Some(timer_id),
-            timer_name: Some(timer_name),
-        }) => Ok((timer_id, timer_name)),
-        _ => Err(format!("Bad Request {:?}", params.get())),
+#[derive(Params, PartialEq, Clone, Debug)]
+struct RawTimerNameQuery {
+    name: Option<String>,
+    break_name: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct TimerPageParams {
+    timer_id: Uuid,
+}
+
+fn extract_params() -> Result<(TimerPageParams, TimerNameQuery), String> {
+    let params = use_params::<RawTimerPageParams>();
+    let query = use_query::<RawTimerNameQuery>();
+    match (params.get(), query.get()) {
+        (
+            Ok(RawTimerPageParams {
+                timer_id: Some(timer_id),
+            }),
+            Ok(RawTimerNameQuery {
+                name: Some(name),
+                break_name,
+            }),
+        ) => Ok((
+            TimerPageParams { timer_id },
+            TimerNameQuery { name, break_name },
+        )),
+        _ => Err(format!("Bad Request {:?} {:?}", params.get(), query.get())),
     }
+}
+
+fn timer_query(name: &str, break_name: Option<&str>) -> String {
+    let mut q = format!("name={}", urlencoding::encode(name));
+    if let Some(b) = break_name {
+        q.push_str(&format!("&break_name={}", urlencoding::encode(b)));
+    }
+    q
 }
 
 #[component]
@@ -297,14 +358,19 @@ fn TimerPage() -> impl IntoView {
         <CloseButton href=None />
         {|| {
             match extract_params() {
-                Ok((timer_id, timer_name)) => {
+                Ok((TimerPageParams { timer_id }, TimerNameQuery { name, break_name })) => {
+                    let manifest_query = timer_query(&name, break_name.as_deref());
                     view! {
                         <Link
                             rel="manifest"
-                            href=format!("/{timer_id}/{timer_name}/manifest.json")
+                            href=format!("/{timer_id}/manifest.json?{manifest_query}")
                         />
-                        <Title text=format!("{timer_name} Poker Timer") />
-                        <TimerComp timer_id=timer_id timer_name=timer_name />
+                        <Title text=format!("{name} Poker Timer") />
+                        <TimerComp
+                            timer_id=timer_id
+                            timer_name=name
+                            break_name=break_name
+                        />
                     }
                         .into_any()
                 }
@@ -315,7 +381,7 @@ fn TimerPage() -> impl IntoView {
 }
 
 #[cfg(not(feature = "ssr"))]
-fn maybe_add_timer(timer_id: Uuid, timer_name: &str) {
+fn maybe_add_timer(timer_id: Uuid, timer_name: &str, break_name: Option<&str>) {
     fn write_timers(storage: &web_sys::Storage, timers: &Vec<TimerRef>) {
         match serde_json::to_string(timers) {
             Ok(json) => {
@@ -327,6 +393,12 @@ fn maybe_add_timer(timer_id: Uuid, timer_name: &str) {
         }
     }
 
+    let new_ref = || TimerRef {
+        id: timer_id,
+        name: timer_name.to_string(),
+        break_name: break_name.map(|s| s.to_string()),
+    };
+
     if let Ok(Some(storage)) = window().local_storage() {
         match storage.get_item("timers") {
             Ok(Some(item)) => {
@@ -334,41 +406,26 @@ fn maybe_add_timer(timer_id: Uuid, timer_name: &str) {
                     Ok(mut timers) => {
                         if timers.iter().find(|t| t.id == timer_id).is_none() {
                             // timer is not in data, add it
-                            timers.push(TimerRef {
-                                id: timer_id,
-                                name: timer_name.to_string(),
-                            });
+                            timers.push(new_ref());
                             write_timers(&storage, &timers);
                         }
                     }
                     _ => {
                         // couldn't parse the storage, replace it
-                        write_timers(
-                            &storage,
-                            &vec![TimerRef {
-                                id: timer_id,
-                                name: timer_name.to_string(),
-                            }],
-                        );
+                        write_timers(&storage, &vec![new_ref()]);
                     }
                 }
             }
             _ => {
                 // no string exists yet
-                write_timers(
-                    &storage,
-                    &vec![TimerRef {
-                        id: timer_id,
-                        name: timer_name.to_string(),
-                    }],
-                );
+                write_timers(&storage, &vec![new_ref()]);
             }
         };
     };
 }
 
 #[cfg(feature = "ssr")]
-fn maybe_add_timer(_timer_id: Uuid, _timer_name: &str) {
+fn maybe_add_timer(_timer_id: Uuid, _timer_name: &str, _break_name: Option<&str>) {
     // this does nothing on the server
 }
 
@@ -412,9 +469,13 @@ fn get_device_id() -> Option<Uuid> {
 }
 
 #[component]
-fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
-    maybe_add_timer(timer_id, &timer_name);
-    let encoded_name = urlencoding::encode(&timer_name).into_owned();
+fn TimerComp(
+    timer_id: Uuid,
+    timer_name: String,
+    break_name: Option<String>,
+) -> impl IntoView {
+    maybe_add_timer(timer_id, &timer_name, break_name.as_deref());
+    let qr_query = timer_query(&timer_name, break_name.as_deref());
     let device_id = get_device_id();
     let ws_path = match device_id {
         Some(id) => format!("/{}/ws/{}", timer_id, id),
@@ -520,18 +581,22 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                                 </form>
                             </p>
                             <div class="qr-code-section">
-                                <img src=format!("/{timer_id}/qr/{encoded_name}") />
+                                <img src=format!("/{timer_id}/qr?{qr_query}") />
                             </div>
                         }
                             .into_any()
                     }
                     TimerCompState::Running { state, subscribed } => {
-                        let next_display_string = state.next.short_level_string();
-                        let cur_display_string = state.cur.make_level_string();
+                        let next_display_string = state.next.short_level_string(break_name.as_deref());
+                        let cur_display_string = state.cur.make_level_string(break_name.as_deref());
                         let timer_name = timer_name.clone();
 
                         view! {
-                            <SettingsButton timer_id=timer_id timer_name=timer_name.clone() />
+                            <SettingsButton
+                            timer_id=timer_id
+                            timer_name=timer_name.clone()
+                            break_name=break_name.clone()
+                        />
                             <div class="title">
                                 {
                                     let timer_name = timer_name.clone();
@@ -575,7 +640,7 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
                                     }}
                                 </div>
                                 <div class="qr-code-section">
-                                    <img src=format!("/{timer_id}/qr/{encoded_name}") />
+                                    <img src=format!("/{timer_id}/qr?{qr_query}") />
                                 </div>
                             </div>
                         }
@@ -588,9 +653,16 @@ fn TimerComp(timer_id: Uuid, timer_name: String) -> impl IntoView {
 }
 
 #[component]
-fn SettingsButton(timer_id: Uuid, timer_name: String) -> impl IntoView {
-    let encoded_name = urlencoding::encode(&timer_name);
-    let url = format!("/{}/settings/{}", timer_id, encoded_name);
+fn SettingsButton(
+    timer_id: Uuid,
+    timer_name: String,
+    break_name: Option<String>,
+) -> impl IntoView {
+    let url = format!(
+        "/{}/settings?{}",
+        timer_id,
+        timer_query(&timer_name, break_name.as_deref())
+    );
     let nav = use_navigate();
     view! {
         <div class="settings-button">
@@ -919,7 +991,7 @@ fn SettingsPage() -> impl IntoView {
     let old_settings: Resource<Result<Option<Duration>, ServerFnError>> = Resource::new(
         || extract_params(),
         |params| async move {
-            if let Ok((timer_id, _)) = params {
+            if let Ok((TimerPageParams { timer_id }, _)) = params {
                 tournament_settings(timer_id).await
             } else {
                 Err(ServerFnError::new("tournament_settings failed"))
@@ -936,15 +1008,19 @@ fn SettingsPage() -> impl IntoView {
     view! {
         {move || {
             match extract_params() {
-                Ok((timer_id, timer_name)) => {
+                Ok((
+                    TimerPageParams { timer_id },
+                    TimerNameQuery { name: timer_name, break_name },
+                )) => {
+                    let timer_url_query = timer_query(&timer_name, break_name.as_deref());
                     let execute_command = {
-                        let timer_name = timer_name.clone();
+                        let timer_url_query = timer_url_query.clone();
                         move |cmd| {
-                            let timer_name = timer_name.clone();
+                            let timer_url_query = timer_url_query.clone();
                             spawn_local(async move {
                                 if let Ok(_) = execute_command(cmd, timer_id, device_id).await {
                                     use_navigate()(
-                                        &format!("/{}/timer/{}", timer_id, timer_name),
+                                        &format!("/{}/timer?{}", timer_id, timer_url_query),
                                         NavigateOptions::default(),
                                     );
                                 }
@@ -952,25 +1028,23 @@ fn SettingsPage() -> impl IntoView {
                         }
                     };
                     let error = duration_override_signal.get().is_err();
-                    let encoded_name = urlencoding::encode(&timer_name).into_owned();
 
                     view! {
-                        <CloseButton href=Some(format!("/{timer_id}/timer/{encoded_name}")) />
+                        <CloseButton href=Some(format!("/{timer_id}/timer?{timer_url_query}")) />
                         <h1>"Settings"</h1>
                         <form
                             class="form"
                             on:submit:target=move |evt| {
                                 evt.prevent_default();
                                 if let Ok(v) = duration_override_signal.get() {
-                                    let encoded_name = urlencoding::encode(&timer_name)
-                                        .into_owned();
+                                    let timer_url_query = timer_url_query.clone();
                                     spawn_local(async move {
                                         if let Err(e) = set_tournament_settings(timer_id, v).await {
                                             duration_override_signal.set(Err(e.to_string()));
                                         } else {
                                             let nav = use_navigate();
                                             nav(
-                                                &format!("/{timer_id}/timer/{encoded_name}"),
+                                                &format!("/{timer_id}/timer?{timer_url_query}"),
                                                 NavigateOptions::default(),
                                             );
                                         }
